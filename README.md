@@ -69,6 +69,34 @@ banners, gold and braziers as the ages pass.
 Placement is deliberate now: tap to move the ghost, rotate it (⟳ or **R**),
 then confirm with **Build** (walls still place instantly, tap-tap-tap).
 
+### The wilds
+
+A neutral third power lives between the two towns, and scouting is how you
+meet it. Sites appear on the minimap as small gold diamonds once your fog
+lifts; walking up to one is what springs it.
+
+- **Game herds** — gazelle flee the hunt (wounded animals tire), boar turn and
+  fight. A kill leaves a **carcass** your villagers butcher for food before it
+  spoils; hunters switch to butchering on their own.
+- **Wolf dens** — once discovered, the pack raids nearby villagers (yours *or*
+  the rival's) until the den is razed. Clearing it grants **Wolf Pelts**:
+  villagers gain +25% HP for the rest of the match.
+- **Deserters' camps** — stand at the camp and an offer appears: pay their
+  price and the mercenaries fight under your banner. Or raze the camp and take
+  their stash — but they fight back, and blood spoils the deal.
+- **Old cairns** — send a villager to dig; a few seconds later something comes
+  up: gold, food or stone.
+- **Refugees** — approach and they follow you home. Each one that reaches a
+  Town Center settles as a free villager, and their **Gratitude** speeds your
+  construction for a while.
+- **The Golden Idol** — one relic per map, far out in the deep field. Any unit
+  can carry it, the carrier is marked on the minimap, and if they fall it drops
+  where they died — for anyone to take. Enshrine it at a Town Center for a
+  permanent trickle of gold.
+
+Soldiers and towers ignore grazing animals and the huddled — the wilds only
+draw steel when the wilds draw first.
+
 ### Controls
 
 | Action | Touch | Mouse |
