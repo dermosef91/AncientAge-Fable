@@ -118,6 +118,18 @@ img.thumb, img.bthumb, img.pthumb, img.chip-thumb, img.qthumb, img.act-thumb, im
   box-shadow: var(--shadow);
   display: flex; align-items: center; justify-content: center;
 }
+.fullscreen-btn {
+  width: 46px; height: 46px;
+  box-shadow: var(--shadow);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.fs-corner {
+  position: absolute;
+  top: calc(14px + var(--sat));
+  right: calc(14px + var(--sar));
+  z-index: 2;
+}
 
 /* ---------------- objectives ---------------- */
 #objectives {

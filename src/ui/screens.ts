@@ -4,6 +4,7 @@ import type { Difficulty, Faction, PlayerStats } from '../core/types';
 import { fmtTime } from '../core/utils';
 import { unitThumb } from '../render/thumbnails';
 import type { Sound } from '../audio/sound';
+import { bindFullscreenButton, fullscreenSupported } from './fullscreen';
 import { icon } from './icons';
 
 export function showFactionSelect(
@@ -23,6 +24,16 @@ export function showFactionSelect(
   const inner = document.createElement('div');
   inner.className = 'fs-inner';
   overlay.appendChild(inner);
+
+  let unbindFullscreen: (() => void) | null = null;
+  if (fullscreenSupported()) {
+    const fsBtn = document.createElement('button');
+    fsBtn.className = 'fullscreen-btn fs-corner';
+    unbindFullscreen = bindFullscreenButton(
+      fsBtn, fs => icon(fs ? 'fullscreenExit' : 'fullscreen', 20), () => sound.button()
+    );
+    overlay.appendChild(fsBtn);
+  }
 
   const title = document.createElement('div');
   title.className = 'fs-title';
@@ -99,6 +110,7 @@ export function showFactionSelect(
     sound.built();
     starting = true;
     const go = () => {
+      unbindFullscreen?.();
       overlay.remove();
       onStart(faction, difficulty);
     };

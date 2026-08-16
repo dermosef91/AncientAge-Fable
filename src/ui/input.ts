@@ -24,6 +24,10 @@ export class InputController {
   private pinchStartDist = 0;
   private lastTapT = 0;
   private lastTapId = 0;
+  /** True once the player has tapped a spot in placement mode; gates confirm-on-second-tap
+   *  so the very first tap (which may coincide with a hover-positioned ghost on desktop)
+   *  always just positions the ghost instead of instantly building. */
+  private placeTapped = false;
   private hoverGround: { x: number; z: number } | null = null;
   private selectRectEl: HTMLDivElement;
   private boxStart: { x: number; y: number } | null = null;
@@ -104,6 +108,7 @@ export class InputController {
     this.placeType = type;
     this.placeRot = 0;
     this.hoverGround = null;
+    this.placeTapped = false;
     this.updateGhost();
     this.onChange();
   }
@@ -425,7 +430,16 @@ export class InputController {
         this.updateGhost();
         return;
       }
-      // other buildings: the tap positions the ghost; Build confirms it
+      // other buildings: a tap positions the ghost; tapping that same spot again confirms it
+      const size = BUILDINGS[this.placeType].size;
+      const cx = Math.round(g.x - size / 2);
+      const cz = Math.round(g.z - size / 2);
+      const ghost = this.view.ghost;
+      if (this.placeTapped && ghost && ghost.cx === cx && ghost.cz === cz) {
+        this.confirmPlacement();
+        return;
+      }
+      this.placeTapped = true;
       this.updateGhost();
       this.onChange();
       return;

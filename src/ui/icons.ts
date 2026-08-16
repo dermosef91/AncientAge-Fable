@@ -125,6 +125,10 @@ const P: Record<string, string> = {
   lock: `<path d="M7.4 10.4V7.8a4.6 4.6 0 019.2 0v2.6" stroke="${G.stoneDark}" stroke-width="2.2" fill="none"/>
     <rect x="4.8" y="10.2" width="14.4" height="10.4" rx="2.2" fill="${G.stoneDark}"/>
     <circle cx="12" cy="15.4" r="1.9" fill="#3a342c"/>`,
+  fullscreen: `<path d="M3.6 8.4V3.6h4.8M15.6 3.6h4.8v4.8M20.4 15.6v4.8h-4.8M8.4 20.4H3.6v-4.8"
+    stroke="${G.cloth}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
+  fullscreenExit: `<path d="M8.4 3.6V8.4H3.6M15.6 3.6V8.4H20.4M15.6 20.4V15.6H20.4M8.4 20.4V15.6H3.6"
+    stroke="${G.cloth}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
 
   // ---------- technologies ----------
   wheel: `<circle cx="12" cy="12" r="9" fill="${G.woodDark}"/>

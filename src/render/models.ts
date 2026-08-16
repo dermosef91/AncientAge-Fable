@@ -43,12 +43,13 @@ const STYLE: Record<Faction, Style> = {
 };
 
 const cache = new Map<string, THREE.BufferGeometry>();
-function cached(key: string, make: (p: Parts) => void): THREE.BufferGeometry {
+function cached(key: string, make: (p: Parts) => void, post?: (g: THREE.BufferGeometry) => void): THREE.BufferGeometry {
   let g = cache.get(key);
   if (!g) {
     const p = new Parts();
     make(p);
     g = p.build();
+    post?.(g);
     cache.set(key, g);
   }
   return g;
@@ -1183,7 +1184,7 @@ export function unitGeo(type: UnitTypeId, faction: Faction): THREE.BufferGeometr
         break;
       }
     }
-  });
+  }, type === 'chariot' ? g => { g.rotateY(Math.PI); g.computeBoundingSphere(); } : undefined);
 }
 
 export const UNIT_VIS_HEIGHT: Record<UnitTypeId, number> = {

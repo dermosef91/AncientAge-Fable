@@ -11,6 +11,7 @@ import { buildingThumb, thumbImg, unitThumb } from '../render/thumbnails';
 import type { Sound } from '../audio/sound';
 import type { World } from '../sim/world';
 import type { GameView } from '../render/view';
+import { bindFullscreenButton, fullscreenSupported } from './fullscreen';
 import { icon } from './icons';
 import type { InputController } from './input';
 import type { Minimap } from './minimap';
@@ -52,6 +53,7 @@ export class HUD {
   private idleBtn!: HTMLElement;
   private sideRail!: HTMLElement;
   private menuModal: HTMLElement | null = null;
+  private unbindFullscreen: (() => void) | null = null;
   private resEls: Record<string, HTMLElement> = {};
   private objectives: Objective[] = [];
   private panelSig = '';
@@ -103,6 +105,12 @@ export class HUD {
     this.ageChip.innerHTML =
       `<span class="age-badge">I</span>
        <span class="age-text"><b class="age-name">Stone Age</b><i class="age-clock">00:00</i></span>`;
+    if (fullscreenSupported()) {
+      const fsBtn = this.el('button', '', tr, 'fullscreen-btn') as HTMLButtonElement;
+      this.unbindFullscreen = bindFullscreenButton(
+        fsBtn, fs => icon(fs ? 'fullscreenExit' : 'fullscreen', 20), () => this.sound.button()
+      );
+    }
     const menuBtn = this.el('button', 'menu-btn', tr);
     menuBtn.innerHTML = icon('menu', 22);
     menuBtn.title = 'Menu';
@@ -833,6 +841,7 @@ export class HUD {
 
   dispose() {
     this.menuModal?.remove();
+    this.unbindFullscreen?.();
     this.root.innerHTML = '';
   }
 }
