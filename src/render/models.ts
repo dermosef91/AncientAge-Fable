@@ -461,14 +461,15 @@ export function cropGeo(faction: Faction, withered: boolean): THREE.BufferGeomet
               { seg: 3, rx: Math.sin(a) * 0.45, rz: Math.cos(a) * 0.45, shade: sh });
           }
         } else if (faction === 'egypt') {
-          // wheat sheaf: splayed golden stalks, bright seed tips
-          for (let s = 0; s < 4; s++) {
-            const a = s * 1.6 + i * 1.3 + r;
-            const h = (0.3 + (s % 2) * 0.09) * k;
-            p.cone(PAL.wheat, 0.026, h, x + Math.cos(a) * 0.055, h / 2, z + Math.sin(a) * 0.055,
-              { seg: 4, rx: Math.sin(a) * 0.22, rz: Math.cos(a) * 0.22, shade: sh });
+          // wheat sheaf: dense splayed golden stalks, bright seed tips
+          for (let s = 0; s < 6; s++) {
+            const a = s * 1.05 + i * 1.3 + r;
+            const h = (0.32 + (s % 2) * 0.1) * k;
+            p.cone(0xe3bf5e, 0.032, h, x + Math.cos(a) * 0.06, h / 2, z + Math.sin(a) * 0.06,
+              { seg: 4, rx: Math.sin(a) * 0.22, rz: Math.cos(a) * 0.22, shade: sh * 1.05 });
           }
-          p.sphere(0xe8cd76, 0.045 * k, x, 0.34 * k, z, { seg: 4, sy: 1.6, shade: sh });
+          p.sphere(0xf0d382, 0.06 * k, x, 0.36 * k, z, { seg: 4, sy: 1.5, shade: sh });
+          p.sphere(0xe8cd76, 0.045 * k, x + 0.06, 0.3 * k, z - 0.04, { seg: 4, sy: 1.5, shade: sh * 0.95 });
         } else if (faction === 'greece') {
           // grapevine on a stake, clusters on every other plant
           p.cyl(PAL.woodDark, 0.016, 0.02, 0.38 * k, x, 0.19 * k, z, { seg: 4 });
