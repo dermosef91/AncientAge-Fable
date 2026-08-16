@@ -1,0 +1,871 @@
+// Fixed-timestep simulation: unit task state machines, gathering, construction,
+// combat, projectiles, fog. Deterministic given the same command stream.
+import {
+  AGES, BUILDINGS, FARM_FOOD, FARM_RESEED_COST, MAP_W, POP_MAX, RES_ORDER,
+  TECHS, TRADE_BASE_GOLD, TRADE_GOLD_PER_TILE, UNITS, WONDER_COUNTDOWN
+} from '../core/config';
+import type { Building, NodeKind, Projectile, ResType, Unit } from '../core/types';
+import { RES_OF_NODE } from '../core/types';
+import { angleLerp, clamp, dist, dist2 } from '../core/utils';
+import { landPassableFor, waterPassable } from './pathfinding';
+import type { World } from './world';
+
+const tmpUnits: Unit[] = [];
+
+export function simTick(world: World, dt: number) {
+  world.time += dt;
+  world.tick++;
+  world.rebuildHash();
+
+  for (const u of world.units.values()) { u.px = u.x; u.pz = u.z; }
+  for (const p of world.projectiles) { p.px = p.x; p.py = p.y; p.pz = p.z; }
+
+  updateBuildings(world, dt);
+  for (const u of world.units.values()) updateUnit(world, u, dt);
+  separation(world, dt);
+  updateProjectiles(world, dt);
+  updateWonders(world, dt);
+  if (world.tick % 20 === 0) updateLabor(world);
+
+  if (world.tick % 5 === 0) updateFog(world);
+}
+
+/** A completed wonder wins the game for its owner once the countdown runs out. */
+function updateWonders(world: World, dt: number) {
+  for (let o = 0; o < 2; o++) {
+    if (world.wonderT[o] < 0 || world.winner >= 0) continue;
+    world.wonderT[o] -= dt;
+    if (world.wonderT[o] <= 0) {
+      world.wonderT[o] = -1;
+      world.winner = o;
+      world.victoryReason = 'wonder';
+      world.emit({ t: 'victory', winner: o });
+    }
+  }
+}
+
+/** Forum labor pool: put idle villagers to work along the owner's weights. */
+function updateLabor(world: World) {
+  for (let owner = 0; owner < 2; owner++) {
+    const p = world.players[owner];
+    if (!p.laborOn || !world.hasBuilt(owner, 'forum')) continue;
+    const idle: Unit[] = [];
+    const counts: Record<ResType, number> = { food: 0, wood: 0, stone: 0, gold: 0 };
+    let total = 0;
+    for (const u of world.units.values()) {
+      if (u.owner !== owner || u.type !== 'villager') continue;
+      total++;
+      const task = u.task;
+      if (task.type === 'gather') {
+        const n = world.nodes.get(task.nodeId);
+        if (n) counts[RES_OF_NODE[n.kind]]++;
+      } else if (task.type === 'farm') counts.food++;
+      else if (task.type === 'deposit' && u.carryKind) counts[RES_OF_NODE[u.carryKind]]++;
+      else if (task.type === 'idle' && u.idleT > 1.5) idle.push(u);
+    }
+    for (const v of idle) {
+      let bestRes: ResType = 'food', bestDef = -Infinity;
+      for (const r of RES_ORDER) {
+        const deficit = p.laborWeights[r] * total - counts[r];
+        if (deficit > bestDef) { bestDef = deficit; bestRes = r; }
+      }
+      if (sendVillagerTo(world, v, bestRes)) counts[bestRes]++;
+    }
+  }
+}
+
+function sendVillagerTo(world: World, v: Unit, res: ResType): boolean {
+  if (res === 'food') {
+    for (const b of world.buildings.values()) {
+      if (b.owner === v.owner && BUILDINGS[b.type].farm && b.built &&
+          (!b.workerId || !world.units.has(b.workerId))) {
+        world.cmdFarm([v.id], b.id);
+        return true;
+      }
+    }
+    const berry = world.findNearestNode(v.x, v.z, 'berries', 34);
+    if (berry) { world.cmdGather([v.id], berry.id); return true; }
+    return false;
+  }
+  const kind: NodeKind = res === 'wood' ? 'tree' : res === 'stone' ? 'stone' : 'gold';
+  const n = world.findNearestNode(v.x, v.z, kind, 34);
+  if (n) { world.cmdGather([v.id], n.id); return true; }
+  return false;
+}
+
+// ---------------------------------------------------------------- buildings
+function updateBuildings(world: World, dt: number) {
+  for (const b of world.buildings.values()) {
+    b.cooldown = Math.max(0, b.cooldown - dt);
+    b.attackAnimT += dt;
+    if (!b.built) continue;
+    const def = BUILDINGS[b.type];
+    const p = world.players[b.owner];
+
+    // Production queue
+    if (b.queue.length > 0) {
+      const q = b.queue[0];
+      q.t += dt * (q.kind === 'unit' && p.techs.has('logistics') ? 1.15 : 1);
+      if (q.t >= q.total) {
+        b.queue.shift();
+        if (q.kind === 'unit' && q.unit) {
+          p.popUsed -= UNITS[q.unit].pop; // release reservation; spawnUnit re-adds
+          const cell = world.freeSpawnCell(b, q.unit === 'boat');
+          const u = world.spawnUnit(b.owner, q.unit, cell.x, cell.z);
+          p.stats.trained++;
+          world.emit({ t: 'trained', owner: b.owner, unitType: q.unit });
+          if (u.type === 'tradecart') {
+            // carts exist to trade — send them off immediately
+            world.cmdTrade([u.id], b.id);
+          } else if (b.rally) {
+            const ent = world.entityAt(b.rally.x, b.rally.z);
+            if (ent?.kind === 'node') world.cmdGather([u.id], ent.id);
+            else if (ent?.kind === 'building') {
+              const rb = world.buildings.get(ent.id);
+              if (rb && rb.owner === b.owner && BUILDINGS[rb.type].farm && !rb.workerId && u.type === 'villager') {
+                world.cmdFarm([u.id], rb.id);
+              } else if (rb && rb.owner === b.owner && !rb.built && u.type === 'villager') {
+                world.cmdBuild([u.id], rb.id);
+              } else world.cmdMove([u.id], b.rally.x, b.rally.z);
+            } else world.cmdMove([u.id], b.rally.x, b.rally.z);
+          }
+        } else if (q.kind === 'research' && q.tech) {
+          applyResearch(world, b.owner, q.tech);
+        } else if (q.kind === 'age' && q.age !== undefined) {
+          p.age = Math.max(p.age, q.age);
+          world.emit({ t: 'age', owner: b.owner, age: p.age });
+          if (b.owner === 0) {
+            world.emit({ t: 'toast', owner: 0, msg: `The ${AGES[p.age].name} begins`, kind: 'good' });
+          }
+        } else if (q.kind === 'upgrade' && q.to) {
+          // in-place transformation (shrine -> temple)
+          world.noteBuilt(b.owner, b.type, -1);
+          const frac = b.hp / b.maxHp;
+          b.type = q.to;
+          b.maxHp = world.buildingHp(b.owner, q.to);
+          b.hp = Math.round(b.maxHp * Math.max(frac, 0.6));
+          world.noteBuilt(b.owner, b.type, 1);
+          world.emit({ t: 'upgrade', id: b.id, owner: b.owner, bType: q.to, x: b.x, z: b.z });
+          if (b.owner === 0) {
+            world.emit({ t: 'toast', owner: 0, msg: `${BUILDINGS[q.to].name} consecrated`, kind: 'good' });
+          }
+        }
+      }
+    }
+
+    // Heal aura (shrine / temple)
+    if (def.heal && world.tick % 5 === 0) {
+      const rate = def.heal.rate * (p.techs.has('medicine') ? 2 : 1);
+      world.unitsNear(b.x, b.z, def.heal.range, tmpUnits);
+      for (const t of tmpUnits) {
+        if (t.owner !== b.owner || t.hp >= t.maxHp) continue;
+        t.hp = Math.min(t.maxHp, t.hp + rate * dt * 5);
+      }
+    }
+
+    // Tower attack
+    if (def.attack && b.cooldown <= 0) {
+      const targetId = findTowerTarget(world, b, def.attack.range);
+      if (targetId) {
+        const t = world.units.get(targetId)!;
+        spawnProjectile(world, b.owner, b.x, b.z, 2.6, t.id, def.attack.dmg, 'arrow');
+        b.cooldown = def.attack.cooldown;
+        b.attackAnimT = 0;
+        world.emit({ t: 'shoot', x: b.x, z: b.z });
+      }
+    }
+
+    // Monument gold trickle
+    if (b.type === 'monument') {
+      world.players[b.owner].res.gold += 0.45 * dt * (p.techs.has('coinage') ? 1.5 : 1);
+    }
+
+    // Farm reseeding
+    if (def.farm && b.farmFood <= 0) {
+      if (p.res.wood >= FARM_RESEED_COST) {
+        p.res.wood -= FARM_RESEED_COST;
+        b.farmFood = FARM_FOOD;
+        if (b.withered) { b.withered = false; }
+        world.emit({ t: 'farmReseed', owner: b.owner, id: b.id });
+      } else if (!b.withered) {
+        b.withered = true;
+        world.emit({ t: 'farmWither', owner: b.owner, id: b.id });
+        if (b.owner === 0) world.emit({ t: 'toast', owner: 0, msg: 'A farm needs wood to reseed', kind: 'warn' });
+      }
+    }
+  }
+}
+
+function findTowerTarget(world: World, b: Building, range: number): number {
+  let best = 0, bestD = (range + 0.5) * (range + 0.5);
+  world.unitsNear(b.x, b.z, range + 0.5, tmpUnits);
+  for (const u of tmpUnits) {
+    if (u.owner === b.owner) continue;
+    const d = dist2(u.x, u.z, b.x, b.z);
+    const prio = u.type === 'villager' ? d * 1.5 : d;
+    if (prio < bestD) { bestD = prio; best = u.id; }
+  }
+  return best;
+}
+
+function applyResearch(world: World, owner: number, techId: string) {
+  const p = world.players[owner];
+  p.techs.add(techId);
+  world.emit({ t: 'research', owner, tech: techId });
+  // Retroactive HP boosts
+  if (techId === 'shields') {
+    for (const u of world.units.values()) {
+      if (u.owner !== owner || u.type === 'villager' || u.type === 'boat') continue;
+      const s = world.unitStats(owner, u.type);
+      u.hp += Math.max(0, s.hp - u.maxHp);
+      u.maxHp = s.hp;
+    }
+  }
+  if (techId === 'masonry') {
+    for (const b of world.buildings.values()) {
+      if (b.owner !== owner) continue;
+      const nm = world.buildingHp(owner, b.type);
+      b.hp += Math.max(0, nm - b.maxHp);
+      b.maxHp = nm;
+    }
+  }
+}
+
+// ---------------------------------------------------------------- units
+function updateUnit(world: World, u: Unit, dt: number) {
+  u.cooldown = Math.max(0, u.cooldown - dt);
+  u.attackAnimT += dt;
+  u.scanT -= dt;
+  const stats = world.unitStats(u.owner, u.type);
+
+  switch (u.task.type) {
+    case 'idle': {
+      u.idleT += dt;
+      if (u.scanT <= 0 && !u.water) {
+        u.scanT = 0.4 + Math.random() * 0.2;
+        const def = UNITS[u.type];
+        if (isMilitary(u)) {
+          // Hold-position units only strike what already stands in reach.
+          const radius = u.hold ? Math.max(def.range, def.radius + 0.7) + 0.4 : def.aggro;
+          const e = world.findEnemy(u.owner, u.x, u.z, radius, true, true);
+          if (e) {
+            u.post = u.post ?? { x: u.x, z: u.z };
+            u.resume = u.hold ? null : { x: u.post.x, z: u.post.z, attackMove: false };
+            u.task = { type: 'attack', targetId: e };
+            u.path = null;
+          }
+        } else if (u.type === 'villager') {
+          // Villagers only pick fights with enemy workers; soldiers scare them off.
+          const e = world.findEnemy(u.owner, u.x, u.z, 3.2, true, true);
+          const target = e ? world.units.get(e) : undefined;
+          if (target && target.type === 'villager') {
+            u.resume = { x: u.x, z: u.z, attackMove: false };
+            u.task = { type: 'attack', targetId: e };
+            u.path = null;
+          }
+        }
+      }
+      break;
+    }
+    case 'move': {
+      const t = u.task;
+      if (t.attackMove && isMilitary(u) && u.scanT <= 0) {
+        u.scanT = 0.45;
+        const e = world.findEnemy(u.owner, u.x, u.z, UNITS[u.type].aggro + 1);
+        if (e) {
+          u.task = { type: 'attack', targetId: e };
+          u.path = null;
+          break;
+        }
+      }
+      if (approach(world, u, dt, stats.speed, t.x, t.z, 0.45)) {
+        u.task = { type: 'idle' };
+        u.idleT = 0;
+        if (!t.attackMove) u.resume = null;
+      }
+      break;
+    }
+    case 'gather': {
+      updateGather(world, u, dt, stats.speed);
+      break;
+    }
+    case 'farm': {
+      updateFarm(world, u, dt, stats.speed);
+      break;
+    }
+    case 'deposit': {
+      updateDeposit(world, u, dt, stats.speed);
+      break;
+    }
+    case 'build': {
+      updateBuild(world, u, dt, stats.speed);
+      break;
+    }
+    case 'attack': {
+      updateAttack(world, u, dt, stats);
+      break;
+    }
+    case 'trade': {
+      updateTrade(world, u, dt, stats.speed);
+      break;
+    }
+  }
+}
+
+function isMilitary(u: Unit): boolean {
+  return u.type !== 'villager' && u.type !== 'boat' && u.type !== 'tradecart';
+}
+
+// ---------- trade ----------
+function updateTrade(world: World, u: Unit, dt: number, speed: number) {
+  if (u.task.type !== 'trade') return;
+  const t = u.task;
+  const post = world.tradePost;
+  if (!post) { u.task = { type: 'idle' }; return; }
+  let m = world.buildings.get(t.marketId);
+  if (!m || m.type !== 'market' || !m.built || m.owner !== u.owner) {
+    // home market gone — find another, otherwise stand down
+    m = undefined;
+    let bestD = Infinity;
+    for (const b of world.buildings.values()) {
+      if (b.owner !== u.owner || b.type !== 'market' || !b.built) continue;
+      const d = dist2(b.x, b.z, u.x, u.z);
+      if (d < bestD) { bestD = d; m = b; }
+    }
+    if (!m) { u.task = { type: 'idle' }; return; }
+    t.marketId = m.id;
+  }
+  if (!t.loaded) {
+    // out to the trading post, brief stop to barter
+    if (approach(world, u, dt, speed, post.x, post.z, 1.5) ||
+        dist(u.x, u.z, post.x, post.z) < 2.0) {
+      u.gatherT += dt;
+      if (u.gatherT >= 1.2) {
+        u.gatherT = 0;
+        t.loaded = true;
+        u.path = null;
+      }
+    }
+  } else {
+    // home with the goods
+    if (approach(world, u, dt, speed, m.x, m.z, m.size / 2 + 0.7)) {
+      const d = dist(m.x, m.z, post.x, post.z);
+      const p = world.players[u.owner];
+      let gold = TRADE_BASE_GOLD + d * TRADE_GOLD_PER_TILE;
+      if (p.techs.has('coinage')) gold *= 1.3;
+      gold = Math.round(gold);
+      p.res.gold += gold;
+      p.stats.gathered.gold += gold;
+      world.emit({ t: 'trade', owner: u.owner, gold, x: m.x, z: m.z });
+      world.emit({ t: 'deposit', owner: u.owner, res: 'gold', amount: gold, x: m.x, z: m.z });
+      t.loaded = false;
+      u.path = null;
+    }
+  }
+}
+
+/**
+ * Move toward a point; returns true when within `range`.
+ * Handles path requests, waypoint following, and getting stuck.
+ */
+function approach(world: World, u: Unit, dt: number, speed: number, tx: number, tz: number, range: number): boolean {
+  const d = dist(u.x, u.z, tx, tz);
+  if (d <= range) { u.path = null; return true; }
+
+  u.repathT -= dt;
+  const goalMoved = !u.pathGoal || dist2(u.pathGoal.x, u.pathGoal.z, tx, tz) > 1.2 * 1.2;
+  if ((!u.path && u.repathT <= 0) || (goalMoved && u.repathT <= 0)) {
+    world.requestPath(u, tx, tz);
+    u.repathT = 0.5 + Math.random() * 0.3;
+    if (!u.path || u.path.length === 0) {
+      // Unreachable: accept being "near enough" if quite close
+      return d < range + 2.2;
+    }
+  }
+  if (!u.path) return false;
+
+  // Follow current waypoint
+  let wp = u.path[u.pathI];
+  if (!wp) { u.path = null; return d <= range + 0.35; }
+  let wx = wp.x, wz = wp.z;
+  // last waypoint: head straight for the true target if clear
+  if (u.pathI === u.path.length - 1) { wx = tx; wz = tz; }
+  let dx = wx - u.x, dz = wz - u.z;
+  let wd = Math.hypot(dx, dz);
+  if (wd < 0.28) {
+    u.pathI++;
+    if (u.pathI >= u.path.length) {
+      u.path = null;
+      return dist(u.x, u.z, tx, tz) <= range + 0.35;
+    }
+    wp = u.path[u.pathI];
+    dx = wp.x - u.x; dz = wp.z - u.z;
+    wd = Math.hypot(dx, dz) || 1;
+  }
+  const step = Math.min(speed * dt, wd);
+  const nx = u.x + (dx / wd) * step;
+  const nz = u.z + (dz / wd) * step;
+  const pass = u.water
+    ? waterPassable
+    : (g: Uint8Array, cx: number, cz: number) => landPassableFor(g, cx, cz, u.owner);
+  if (pass(world.grid, Math.floor(nx), Math.floor(nz))) {
+    u.x = nx; u.z = nz;
+    u.dir = angleLerp(u.dir, Math.atan2(dx, dz), Math.min(1, dt * 10));
+    u.stuckT = 0;
+  } else {
+    // A building appeared in the way — repath
+    u.stuckT += dt;
+    if (u.stuckT > 0.25) { u.path = null; u.repathT = 0; u.stuckT = 0; }
+  }
+  return dist(u.x, u.z, tx, tz) <= range;
+}
+
+// ---------- gathering ----------
+function gatherSlotPos(u: Unit, nx: number, nz: number): { x: number; z: number } {
+  const a = ((u.id * 2.399) % (Math.PI * 2));
+  return { x: nx + Math.cos(a) * 0.95, z: nz + Math.sin(a) * 0.95 };
+}
+
+function updateGather(world: World, u: Unit, dt: number, speed: number) {
+  if (u.task.type !== 'gather') return;
+  const node = world.nodes.get(u.task.nodeId);
+  if (!node || node.amount <= 0) {
+    retargetGather(world, u, node ? node.kind : u.carryKind, node ? node.x : u.x, node ? node.z : u.z);
+    return;
+  }
+  const cap = world.carryCap(u.owner);
+  // If carrying a different resource, dump it mentally (simplify)
+  if (u.carryKind && RES_OF_NODE[u.carryKind] !== RES_OF_NODE[node.kind]) {
+    u.carryKind = null; u.carryAmt = 0;
+  }
+  if (u.carryAmt >= cap) {
+    world.releaseTask(u);
+    u.task = { type: 'deposit', thenNodeId: node.id };
+    u.path = null;
+    return;
+  }
+  const slot = gatherSlotPos(u, node.x, node.z);
+  const range = node.kind === 'fish' ? 1.6 : 0.42;
+  if (approach(world, u, dt, speed, slot.x, slot.z, range) ||
+      dist(u.x, u.z, node.x, node.z) < 1.55) {
+    // gathering
+    if (u.slot < 0) { u.slot = 1; node.gatherers++; }
+    u.dir = angleLerp(u.dir, Math.atan2(node.x - u.x, node.z - u.z), Math.min(1, dt * 8));
+    const rate = world.gatherRate(u.owner, node.kind);
+    const got = Math.min(rate * dt, node.amount, cap - u.carryAmt);
+    u.carryKind = node.kind;
+    u.carryAmt += got;
+    node.amount -= got;
+    u.gatherT += dt;
+    if (u.gatherT >= 1.0) {
+      u.gatherT = 0;
+      world.emit({ t: 'gatherTick', nodeId: node.id, kind: node.kind, x: node.x, z: node.z });
+    }
+    if (node.amount <= 0) {
+      world.removeNode(node);
+      if (u.carryAmt > 0.5) {
+        world.releaseTask(u);
+        u.task = { type: 'deposit', thenNodeId: 0 };
+        u.path = null;
+      } else {
+        retargetGather(world, u, node.kind, node.x, node.z);
+      }
+    }
+  }
+}
+
+function retargetGather(world: World, u: Unit, kind: NodeKind | null, nearX: number, nearZ: number) {
+  world.releaseTask(u);
+  if (kind) {
+    const next = world.findNearestNode(nearX, nearZ, kind, 22) ?? world.findNearestNode(u.x, u.z, kind, 30);
+    if (next) {
+      u.task = { type: 'gather', nodeId: next.id };
+      u.path = null;
+      return;
+    }
+  }
+  if (u.carryAmt > 0.5) {
+    u.task = { type: 'deposit' };
+  } else {
+    u.task = { type: 'idle' };
+    if (u.owner === 0 && kind) {
+      world.emit({ t: 'toast', owner: 0, msg: `No more ${RES_OF_NODE[kind]} nearby`, kind: 'warn' });
+    }
+  }
+  u.path = null;
+}
+
+function updateFarm(world: World, u: Unit, dt: number, speed: number) {
+  if (u.task.type !== 'farm') return;
+  const b = world.buildings.get(u.task.bId);
+  if (!b || !BUILDINGS[b.type].farm) { u.task = { type: 'idle' }; return; }
+  if (!b.built) { u.task = { type: 'build', bId: b.id }; u.path = null; return; }
+  if (b.workerId && b.workerId !== u.id) { u.task = { type: 'idle' }; return; }
+  b.workerId = u.id;
+  const cap = world.carryCap(u.owner);
+  if (u.carryAmt >= cap) {
+    u.task = { type: 'deposit', thenFarmId: b.id };
+    u.path = null;
+    return;
+  }
+  // stand at the field edge
+  if (approach(world, u, dt, speed, b.x, b.z, b.size / 2 + 0.35) ||
+      dist(u.x, u.z, b.x, b.z) < b.size / 2 + 0.6) {
+    if (b.withered || b.farmFood <= 0) return; // wait for reseed
+    u.dir = angleLerp(u.dir, Math.atan2(b.x - u.x, b.z - u.z), Math.min(1, dt * 8));
+    const rate = world.gatherRate(u.owner, 'farm');
+    const got = Math.min(rate * dt, b.farmFood, cap - u.carryAmt);
+    u.carryKind = 'berries';
+    u.carryAmt += got;
+    b.farmFood -= got;
+    u.gatherT += dt;
+    if (u.gatherT >= 1.15) {
+      u.gatherT = 0;
+      world.emit({ t: 'gatherTick', nodeId: b.id, kind: 'berries', x: b.x, z: b.z });
+    }
+  }
+}
+
+function updateDeposit(world: World, u: Unit, dt: number, speed: number) {
+  if (u.task.type !== 'deposit') return;
+  if (u.carryAmt <= 0 || !u.carryKind) { afterDeposit(world, u); return; }
+  const drop = world.findNearestDropoff(u.owner, u.x, u.z, u.water);
+  if (!drop) { u.task = { type: 'idle' }; return; }
+  const range = drop.size / 2 + (u.water ? 1.4 : 0.75);
+  if (approach(world, u, dt, speed, drop.x, drop.z, range)) {
+    const res: ResType = RES_OF_NODE[u.carryKind];
+    const p = world.players[u.owner];
+    p.res[res] += u.carryAmt;
+    p.stats.gathered[res] += u.carryAmt;
+    world.emit({ t: 'deposit', owner: u.owner, res, amount: u.carryAmt, x: drop.x, z: drop.z });
+    u.carryAmt = 0;
+    afterDeposit(world, u);
+  }
+}
+
+function afterDeposit(world: World, u: Unit) {
+  const t = u.task.type === 'deposit' ? u.task : null;
+  const kind = u.carryKind;
+  u.carryKind = null;
+  if (t?.thenFarmId) {
+    const f = world.buildings.get(t.thenFarmId);
+    if (f && (!f.workerId || f.workerId === u.id)) {
+      f.workerId = u.id;
+      u.task = { type: 'farm', bId: f.id };
+      u.path = null;
+      return;
+    }
+  }
+  if (t?.thenNodeId !== undefined) {
+    const n = t.thenNodeId ? world.nodes.get(t.thenNodeId) : undefined;
+    if (n && n.amount > 0) {
+      u.task = { type: 'gather', nodeId: n.id };
+      u.path = null;
+      return;
+    }
+    if (kind) {
+      const next = world.findNearestNode(u.x, u.z, kind, 26);
+      if (next) {
+        u.task = { type: 'gather', nodeId: next.id };
+        u.path = null;
+        return;
+      }
+    }
+  }
+  u.task = { type: 'idle' };
+  u.path = null;
+}
+
+function updateBuild(world: World, u: Unit, dt: number, speed: number) {
+  if (u.task.type !== 'build') return;
+  const b = world.buildings.get(u.task.bId);
+  if (!b || b.owner !== u.owner) { u.task = { type: 'idle' }; return; }
+  const def = BUILDINGS[b.type];
+  const range = b.size / 2 + 0.65;
+  if (approach(world, u, dt, speed, b.x, b.z, range) || dist(u.x, u.z, b.x, b.z) < range + 0.35) {
+    u.dir = angleLerp(u.dir, Math.atan2(b.x - u.x, b.z - u.z), Math.min(1, dt * 8));
+    u.attackAnimT = Math.min(u.attackAnimT, 0.6); // hammer anim hint
+    if (!b.built) {
+      const dp = (dt / def.buildTime) * world.buildRate(u.owner);
+      b.progress = Math.min(1, b.progress + dp);
+      b.hp = Math.min(b.maxHp, b.hp + b.maxHp * 0.92 * dp);
+      u.gatherT += dt;
+      if (u.gatherT > 0.8) {
+        u.gatherT = 0;
+        world.emit({ t: 'gatherTick', nodeId: b.id, kind: 'stone', x: u.x, z: u.z });
+      }
+      if (b.progress >= 1) {
+        b.built = true;
+        b.hp = b.maxHp;
+        const p = world.players[b.owner];
+        if (def.pop) p.popCap = Math.min(POP_MAX, p.popCap + def.pop);
+        world.noteBuilt(b.owner, b.type, 1);
+        if (b.type === 'wonder') {
+          world.wonderT[b.owner] = WONDER_COUNTDOWN;
+          world.emit({ t: 'wonderStart', owner: b.owner });
+        }
+        if (b.type === 'lighthouse' && b.owner === 0) {
+          world.markExplored(b.x, b.z, 16);
+        }
+        if (b.type === 'market' && b.owner === 0 && world.tradePost) {
+          // merchants know the way: reveal the trading post
+          world.markExplored(world.tradePost.x, world.tradePost.z, 5);
+          world.emit({ t: 'toast', owner: 0, msg: 'A trading post lies at the heart of the land', kind: 'good' });
+          world.emit({ t: 'ping', x: world.tradePost.x, z: world.tradePost.z, color: '#f0c05a' });
+        }
+        world.emit({ t: 'built', id: b.id, owner: b.owner, bType: b.type, x: b.x, z: b.z });
+        // farms: builder becomes the farmer
+        if (def.farm && !b.workerId) {
+          b.workerId = u.id;
+          u.task = { type: 'farm', bId: b.id };
+          u.path = null;
+          return;
+        }
+        // continue to a nearby construction site
+        const next = findNearbySite(world, u);
+        if (next) { u.task = { type: 'build', bId: next.id }; u.path = null; return; }
+        u.task = { type: 'idle' };
+      }
+    } else if (b.hp < b.maxHp) {
+      b.hp = Math.min(b.maxHp, b.hp + (b.maxHp / def.buildTime) * 0.45 * dt);
+      u.gatherT += dt;
+      if (u.gatherT > 0.9) {
+        u.gatherT = 0;
+        world.emit({ t: 'gatherTick', nodeId: b.id, kind: 'stone', x: u.x, z: u.z });
+      }
+    } else {
+      const next = findNearbySite(world, u);
+      if (next) { u.task = { type: 'build', bId: next.id }; u.path = null; return; }
+      u.task = { type: 'idle' };
+    }
+  }
+}
+
+function findNearbySite(world: World, u: Unit): Building | null {
+  let best: Building | null = null, bestD = 13 * 13;
+  for (const b of world.buildings.values()) {
+    if (b.owner !== u.owner || b.built) continue;
+    const d = dist2(b.x, b.z, u.x, u.z);
+    if (d < bestD) { bestD = d; best = b; }
+  }
+  return best;
+}
+
+// ---------- combat ----------
+function updateAttack(world: World, u: Unit, dt: number, stats: { atk: number; speed: number }) {
+  if (u.task.type !== 'attack') return;
+  const def = UNITS[u.type];
+  const tu = world.units.get(u.task.targetId);
+  const tb = tu ? undefined : world.buildings.get(u.task.targetId);
+  if (!tu && !tb) {
+    // target gone — look for another, otherwise resume
+    const e = isMilitary(u) ? world.findEnemy(u.owner, u.x, u.z, def.aggro + 1.5) : 0;
+    if (e) { u.task = { type: 'attack', targetId: e }; u.path = null; return; }
+    if (u.resume) {
+      u.task = { type: 'move', x: u.resume.x, z: u.resume.z, attackMove: u.resume.attackMove };
+      if (!u.resume.attackMove) u.resume = null;
+      u.path = null;
+    } else {
+      u.task = { type: 'idle' }; u.idleT = 0;
+    }
+    return;
+  }
+  const tx = tu ? tu.x : tb!.x;
+  const tz = tu ? tu.z : tb!.z;
+  const tRad = tu ? UNITS[tu.type].radius : tb!.size * 0.62;
+  const reach = def.range > 0
+    ? def.range + (tu ? 0 : tb!.size * 0.45)
+    : def.radius + tRad + 0.32;
+
+  const d = dist(u.x, u.z, tx, tz);
+  if (d > reach + 0.05) {
+    // Hold-position units never leave their spot to chase.
+    if (u.hold) {
+      const e = world.findEnemy(u.owner, u.x, u.z, reach + 0.6, true, true);
+      if (e && e !== u.task.targetId) { u.task = { type: 'attack', targetId: e }; return; }
+      if (!e) { u.task = { type: 'idle' }; u.path = null; }
+      return;
+    }
+    // Auto-engaged units are leashed to the post they were guarding.
+    if (u.post && !u.resume?.attackMove && dist(u.x, u.z, u.post.x, u.post.z) > 11) {
+      const post = u.post;
+      u.task = { type: 'move', x: post.x, z: post.z };
+      u.path = null;
+      return;
+    }
+    approach(world, u, dt, stats.speed, tx, tz, reach * 0.97);
+    // If we can't actually get closer (e.g. walled off), switch to whatever
+    // enemy is blocking the way — usually the wall itself.
+    const after = dist(u.x, u.z, tx, tz);
+    if (d - after < stats.speed * dt * 0.25) {
+      u.idleT += dt;
+      if (u.idleT > 2.2) {
+        u.idleT = 0;
+        const near = world.findEnemy(u.owner, u.x, u.z, 4.5);
+        if (near && near !== u.task.targetId) {
+          u.task = { type: 'attack', targetId: near };
+          u.path = null;
+        }
+      }
+    } else {
+      u.idleT = 0;
+    }
+    return;
+  }
+  // in range: face and swing
+  u.dir = angleLerp(u.dir, Math.atan2(tx - u.x, tz - u.z), Math.min(1, dt * 12));
+  if (u.cooldown <= 0) {
+    u.cooldown = def.cooldown;
+    u.attackAnimT = 0;
+    if (def.range > 0) {
+      spawnProjectile(world, u.owner, u.x, u.z, 0.85, u.task.targetId, stats.atk, def.projectile ?? 'arrow');
+      world.emit({ t: 'shoot', x: u.x, z: u.z });
+    } else {
+      dealDamage(world, u.owner, u.task.targetId, stats.atk, u.x, u.z);
+    }
+  }
+}
+
+export function dealDamage(world: World, byOwner: number, targetId: number, rawDmg: number, fromX: number, fromZ: number) {
+  const tu = world.units.get(targetId);
+  if (tu) {
+    const s = world.unitStats(tu.owner, tu.type);
+    const dmg = Math.max(1, rawDmg - s.armor);
+    tu.hp -= dmg;
+    tu.lastHitT = world.time;
+    world.emit({ t: 'hit', x: tu.x, z: tu.z, y: 0.7, melee: true });
+    if (tu.owner === 0) world.emit({ t: 'underattack', owner: 0, x: tu.x, z: tu.z });
+    if (tu.hp <= 0) {
+      world.killUnit(tu, byOwner);
+      return;
+    }
+    reactToDamage(world, tu, byOwner, fromX, fromZ);
+    return;
+  }
+  const tb = world.buildings.get(targetId);
+  if (tb) {
+    tb.hp -= Math.max(1, rawDmg);
+    tb.lastHitT = world.time;
+    world.emit({ t: 'hit', x: tb.x, z: tb.z, y: 1.0, melee: true });
+    if (tb.owner === 0) world.emit({ t: 'underattack', owner: 0, x: tb.x, z: tb.z });
+    if (tb.hp <= 0) world.destroyBuilding(tb, byOwner);
+  }
+}
+
+function reactToDamage(world: World, victim: Unit, byOwner: number, fromX: number, fromZ: number) {
+  if (victim.water) return;
+  if (victim.type === 'villager' || victim.type === 'tradecart') {
+    // flee to town center unless already fleeing
+    if (victim.task.type !== 'move' || !victim.path) {
+      const tc = world.tcPos[victim.owner];
+      world.releaseTask(victim);
+      victim.task = { type: 'move', x: tc.x + (Math.random() * 4 - 2), z: tc.z + 3 + Math.random() * 2 };
+      victim.path = null;
+      victim.resume = null;
+    }
+    return;
+  }
+  // military retaliates if not already fighting
+  if (victim.task.type !== 'attack') {
+    const attacker = world.findEnemy(victim.owner, fromX, fromZ, 2.5) ||
+      world.findEnemy(victim.owner, victim.x, victim.z, UNITS[victim.type].aggro + 2);
+    if (attacker) {
+      victim.resume = { x: victim.x, z: victim.z, attackMove: false };
+      victim.task = { type: 'attack', targetId: attacker };
+      victim.path = null;
+    }
+  }
+}
+
+function spawnProjectile(world: World, owner: number, x: number, z: number, y: number, targetId: number, dmg: number, kind: 'arrow' | 'spear') {
+  const tu = world.units.get(targetId);
+  const tb = tu ? undefined : world.buildings.get(targetId);
+  const tx = tu ? tu.x : tb ? tb.x : x;
+  const tz = tu ? tu.z : tb ? tb.z : z;
+  const d = dist(x, z, tx, tz);
+  const total = Math.max(0.18, d / 13);
+  world.projectiles.push({
+    id: world.nextId++, owner,
+    x, y, z, px: x, py: y, pz: z,
+    sx: x, sz: z, tx, tz, targetId,
+    t: 0, total, dmg,
+    arc: clamp(d * 0.14, 0.25, 1.5),
+    kind
+  });
+}
+
+function updateProjectiles(world: World, dt: number) {
+  const arr = world.projectiles;
+  for (let i = arr.length - 1; i >= 0; i--) {
+    const p = arr[i];
+    p.t += dt / p.total;
+    // light homing so shots connect with moving targets
+    const tu = world.units.get(p.targetId);
+    if (tu) {
+      p.tx += (tu.x - p.tx) * Math.min(1, dt * 7);
+      p.tz += (tu.z - p.tz) * Math.min(1, dt * 7);
+    }
+    if (p.t >= 1) {
+      // impact
+      const tb = world.buildings.get(p.targetId);
+      if (tu && dist(tu.x, tu.z, p.tx, p.tz) < 1.0) {
+        dealDamage(world, p.owner, p.targetId, p.dmg, p.sx, p.sz);
+      } else if (tb) {
+        dealDamage(world, p.owner, p.targetId, p.dmg, p.sx, p.sz);
+      } else {
+        world.emit({ t: 'hit', x: p.tx, z: p.tz, y: 0.05, melee: false });
+      }
+      arr.splice(i, 1);
+      continue;
+    }
+    const t = p.t;
+    p.x = p.sx + (p.tx - p.sx) * t;
+    p.z = p.sz + (p.tz - p.sz) * t;
+    const y0 = 0.9, y1 = 0.5;
+    p.y = y0 + (y1 - y0) * t + Math.sin(t * Math.PI) * p.arc;
+  }
+}
+
+// ---------- separation (anti-bunching) ----------
+function separation(world: World, dt: number) {
+  for (const u of world.units.values()) {
+    const r = u.water ? 1.1 : 0.62;
+    world.unitsNear(u.x, u.z, r, tmpUnits);
+    if (tmpUnits.length < 2) continue;
+    let px = 0, pz = 0;
+    for (const o of tmpUnits) {
+      if (o === u || o.water !== u.water) continue;
+      let dx = u.x - o.x, dz = u.z - o.z;
+      let d = Math.hypot(dx, dz);
+      if (d < 0.001) { dx = Math.sin(u.id); dz = Math.cos(u.id); d = 1; }
+      const overlap = r - d;
+      if (overlap > 0) {
+        px += (dx / d) * overlap;
+        pz += (dz / d) * overlap;
+      }
+    }
+    if (px !== 0 || pz !== 0) {
+      const mul = (u.task.type === 'idle' ? 2.2 : 1.1) * dt;
+      const nx = u.x + clamp(px * mul, -0.09, 0.09);
+      const nz = u.z + clamp(pz * mul, -0.09, 0.09);
+      const ok = u.water
+        ? waterPassable(world.grid, Math.floor(nx), Math.floor(nz))
+        : landPassableFor(world.grid, Math.floor(nx), Math.floor(nz), u.owner);
+      if (ok) {
+        u.x = nx; u.z = nz;
+      }
+    }
+  }
+}
+
+// ---------- fog ----------
+function updateFog(world: World) {
+  for (const u of world.units.values()) {
+    if (u.owner !== 0) continue;
+    world.markExplored(u.x, u.z, u.water ? 9.5 : 8);
+  }
+  for (const b of world.buildings.values()) {
+    if (b.owner !== 0) continue;
+    world.markExplored(b.x, b.z, b.type === 'tower' ? 11 : b.type === 'lighthouse' ? 14 : 7.5);
+  }
+}
