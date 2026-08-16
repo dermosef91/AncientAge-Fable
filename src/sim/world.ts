@@ -1,12 +1,12 @@
 // World: all simulation state plus entity management and player commands.
 // Both the UI and the AI issue orders exclusively through these methods.
 import {
-  AGES, BUILDINGS, CARRY_CAP, FACTIONS, FARM_FOOD, GATHER_RATE, MAP_H, MAP_W,
+  AGES, BOONS, BUILDINGS, CARRY_CAP, ENC, FACTIONS, FARM_FOOD, GATHER_RATE, MAP_H, MAP_W,
   MARKET_BUY_GOLD, MARKET_LOT, MARKET_SELL_GOLD, MAX_AGE, NODE_AMOUNT, POP_MAX,
-  TECHS, UNITS, type Cost
+  TECHS, UNITS, WILDS, type Cost
 } from '../core/config';
 import type {
-  Building, BuildingTypeId, Faction, NodeKind, PlayerState, Projectile,
+  Building, BuildingTypeId, EncounterSite, Faction, NodeKind, PlayerState, Projectile,
   ResourceNode, ResType, SimEvent, Task, Unit, UnitTypeId, Vec2
 } from '../core/types';
 import { RES_OF_NODE } from '../core/types';
@@ -55,11 +55,16 @@ export class World {
   tradePost: Vec2 | null = null;
   /** Wonder victory countdown per player; -1 = no completed wonder. */
   wonderT: [number, number] = [-1, -1];
+  /** Encounter sites in the wilds (owner 2), placed during map gen. */
+  sites: EncounterSite[] = [];
 
   constructor(playerFaction: Faction, aiFaction: Faction, aiGatherMul: number) {
     this.players = [
       this.makePlayer(playerFaction, 1),
-      this.makePlayer(aiFaction, aiGatherMul)
+      this.makePlayer(aiFaction, aiGatherMul),
+      // The wilds: a faction-less third power. Its "faction" only feeds
+      // cosmetic code paths; wilds models ignore it entirely.
+      this.makePlayer('rome', 1)
     ];
   }
 
@@ -74,8 +79,33 @@ export class World {
       age: 0,
       built: {},
       laborOn: false,
-      laborWeights: { food: 0.4, wood: 0.3, gold: 0.2, stone: 0.1 }
+      laborWeights: { food: 0.4, wood: 0.3, gold: 0.2, stone: 0.1 },
+      boons: {}
     };
+  }
+
+  // ---------- Boons (encounter rewards) ----------
+  hasBoon(owner: number, id: string): boolean {
+    return (this.players[owner].boons[id] ?? 0) > this.time;
+  }
+
+  grantBoon(owner: number, id: string) {
+    const def = BOONS[id];
+    if (!def) return;
+    const p = this.players[owner];
+    p.boons[id] = def.dur > 0 ? this.time + def.dur : Infinity;
+    // Pelts harden villagers already in the field, like a researched tech.
+    if (id === 'pelts') {
+      for (const u of this.units.values()) {
+        if (u.owner !== owner || u.type !== 'villager') continue;
+        const s = this.unitStats(owner, u.type);
+        u.hp += Math.max(0, s.hp - u.maxHp);
+        u.maxHp = s.hp;
+      }
+    }
+    if (owner === 0) {
+      this.emit({ t: 'toast', owner: 0, msg: `${def.name} — ${def.desc}`, kind: 'good' });
+    }
   }
 
   /** Track completed buildings by type (auras: amphitheater, lighthouse, forum). */
@@ -114,6 +144,7 @@ export class World {
     if (isMil && p.techs.has('bronze')) atk *= 1.25;
     if (isMil && p.techs.has('shields')) { armor += 1; hp *= 1.15; }
     if (type === 'villager' && p.techs.has('wheel')) speed *= 1.2;
+    if (type === 'villager' && this.hasBoon(owner, 'pelts')) hp *= 1.25;
     if (type === 'boat' && this.hasBuilt(owner, 'lighthouse')) speed *= 1.2;
     // The amphitheater's games embolden everyone (non-stacking).
     if (atk > 0 && this.hasBuilt(owner, 'amphitheater')) atk *= 1.3;
@@ -156,7 +187,8 @@ export class World {
   }
 
   buildRate(owner: number): number {
-    return FACTIONS[this.players[owner].faction].bonus.buildRateMul ?? 1;
+    const base = FACTIONS[this.players[owner].faction].bonus.buildRateMul ?? 1;
+    return base * (this.hasBoon(owner, 'gratitude') ? 1.2 : 1);
   }
 
   canAfford(owner: number, c: Cost): boolean {
@@ -438,9 +470,17 @@ export class World {
   }
 
   cmdAttack(ids: number[], targetId: number) {
+    // Treasure props aren't fights: tapping a cairn or the idol walks you there,
+    // and the encounter takes over once someone is close enough.
+    const tb = this.buildings.get(targetId);
+    if (tb && tb.owner === WILDS && (tb.type === 'cairn' || tb.type === 'pedestal')) {
+      this.cmdMove(ids, tb.x, tb.z + tb.size / 2 + 0.4, false);
+      return;
+    }
     for (const id of ids) {
       const u = this.units.get(id);
       if (!u || u.type === 'boat' || u.type === 'tradecart') continue;
+      if (u.type === 'refugee' || u.type === 'gazelle') continue;
       this.releaseTask(u);
       u.task = { type: 'attack', targetId };
       u.resume = null;
@@ -621,6 +661,43 @@ export class World {
     return true;
   }
 
+  /** Pay the deserters at a camp site: its mercenaries join the player. */
+  hireMercs(siteId: number): boolean {
+    const site = this.sites.find(s => s.id === siteId);
+    if (!site || site.kind !== 'camp' || site.state === 'cleared' || site.provokedBy === 0) return false;
+    const mercs = site.unitIds
+      .map(id => this.units.get(id))
+      .filter((u): u is Unit => !!u);
+    if (mercs.length === 0) return false;
+    if (this.players[0].res.gold < ENC.mercPrice) {
+      this.emit({ t: 'toast', owner: 0, msg: 'Not enough gold', kind: 'warn' });
+      return false;
+    }
+    this.players[0].res.gold -= ENC.mercPrice;
+    for (const u of mercs) {
+      this.releaseTask(u);
+      this.players[WILDS].popUsed = Math.max(0, this.players[WILDS].popUsed - UNITS[u.type].pop);
+      u.owner = 0;
+      this.players[0].popUsed += UNITS[u.type].pop;
+      const s = this.unitStats(0, u.type);
+      u.hp = Math.min(s.hp, u.hp + (s.hp - u.maxHp));
+      u.maxHp = s.hp;
+      u.task = { type: 'idle' };
+      u.post = null;
+      u.resume = null;
+      u.hold = false;
+      u.path = null;
+    }
+    site.state = 'cleared';
+    site.unitIds = [];
+    this.emit({ t: 'siteCleared', kind: 'camp', x: site.x, z: site.z, owner: 0 });
+    this.emit({
+      t: 'toast', owner: 0,
+      msg: `${mercs.length} mercenar${mercs.length === 1 ? 'y joins' : 'ies join'} your banner`, kind: 'good'
+    });
+    return true;
+  }
+
   /** Send trade carts on their route (market <-> trading post). */
   cmdTrade(ids: number[], marketId: number) {
     const m = this.buildings.get(marketId);
@@ -670,10 +747,11 @@ export class World {
         if (d < bestFarmD) { bestFarmD = d; bestFarm = b; }
       }
       let best: ResourceNode | null = null, bestD = Infinity;
-      for (const kind of ['berries', 'tree', 'gold', 'stone'] as NodeKind[]) {
+      for (const kind of ['carcass', 'berries', 'tree', 'gold', 'stone'] as NodeKind[]) {
         const n = this.findNearestNode(u.x, u.z, kind, 30);
         if (!n) continue;
-        const d = dist2(n.x, n.z, u.x, u.z) * (kind === 'berries' ? 0.8 : 1);
+        // fresh meat spoils — butcher it before anything else
+        const d = dist2(n.x, n.z, u.x, u.z) * (kind === 'carcass' ? 0.5 : kind === 'berries' ? 0.8 : 1);
         if (d < bestD) { bestD = d; best = n; }
       }
       if (bestFarm && bestFarmD < bestD) this.cmdFarm([u.id], bestFarm.id);
@@ -747,6 +825,14 @@ export class World {
     return out;
   }
 
+  /**
+   * Is this wilds creature fair game for automatic targeting? Grazing herds
+   * and huddled refugees are not; wolves and anything mid-attack are.
+   */
+  wildThreat(u: Unit): boolean {
+    return u.type === 'wolf' || u.task.type === 'attack';
+  }
+
   /** Nearest enemy unit or building within radius. Returns entity id or 0. */
   findEnemy(owner: number, x: number, z: number, r: number, includeVillagers = true, unitsOnly = false): number {
     let bestId = 0, bestD = r * r;
@@ -755,6 +841,8 @@ export class World {
     for (const u of tmp) {
       if (u.owner === owner || u.water) continue;
       if (!includeVillagers && u.type === 'villager') continue;
+      // Peaceful wilds are attacked by explicit order, never by reflex.
+      if (u.owner === WILDS && !this.wildThreat(u)) continue;
       const d = dist2(u.x, u.z, x, z);
       const prio = u.type === 'villager' ? d * 1.6 : d; // prefer soldiers
       if (prio < bestD) { bestD = prio; bestId = u.id; }
@@ -773,6 +861,8 @@ export class World {
         seen.add(id);
         const b = this.buildings.get(id);
         if (!b || b.owner === owner) continue;
+        // Wilds props (dens, camps, cairns) fall to deliberate attacks only.
+        if (b.owner === WILDS) continue;
         const d = dist2(b.x, b.z, x, z);
         if (d < bestBD) { bestBD = d; bestB = b.id; }
       }

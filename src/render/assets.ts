@@ -1,12 +1,26 @@
-// Loads the external glTF models (palm tree, animated Greek villager) and
-// normalizes them into the game's scale/orientation conventions.
-// Everything degrades gracefully: if a model fails to load the game falls
-// back to its procedural geometry.
+// Loads the external glTF models (palm tree, one sculpted villager per
+// civilization) and normalizes them into the game's scale/orientation
+// conventions. Everything degrades gracefully: if a model fails to load the
+// game falls back to its procedural geometry.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import type { Faction } from '../core/types';
 import palmUrl from '../../assets/palm.glb';
-import villagerUrl from '../../assets/greek-villager_Merged_Animations.glb';
+import animationsUrl from '../../assets/greek-villager_Merged_Animations.glb';
+import egyptVillagerUrl from '../../assets/egypt-villager-character_output.glb';
+import greekVillagerUrl from '../../assets/greek-villager-character_output.glb';
+import romeVillagerUrl from '../../assets/rome-villager-character-output.glb';
+import womanUrl from '../../assets/woman-neutral.glb';
+import banditUrl from '../../assets/bandit-neutral.glb';
+
+/** Every civilization's villager is exported on the same 24-bone rig, so one
+ *  merged-animation file supplies the clips for all of them. */
+const VILLAGER_URLS: Record<Faction, string> = {
+  egypt: egyptVillagerUrl,
+  greece: greekVillagerUrl,
+  rome: romeVillagerUrl
+};
 
 /** A static prop flattened to one geometry + material, ready for instancing. */
 export interface PropAsset {
@@ -26,9 +40,17 @@ export interface CharAsset {
 
 export const assets: {
   palm: PropAsset | null;
-  greekVillager: CharAsset | null;
+  /** Sculpted villager per civilization; null falls back to procedural art. */
+  villagers: Record<Faction, CharAsset | null>;
+  /** Neutral characters for the wilds (refugees, deserters) on the same rig. */
+  wilds: { woman: CharAsset | null; bandit: CharAsset | null };
   loaded: boolean;
-} = { palm: null, greekVillager: null, loaded: false };
+} = {
+  palm: null,
+  villagers: { egypt: null, greece: null, rome: null },
+  wilds: { woman: null, bandit: null },
+  loaded: false
+};
 
 /** Names of the clips we drive from gameplay state. */
 export const VILLAGER_CLIPS = {
@@ -47,8 +69,9 @@ let loadPromise: Promise<void> | null = null;
 export function loadAssets(onProgress?: (frac: number) => void): Promise<void> {
   if (loadPromise) return loadPromise;
   const loader = new GLTFLoader();
+  const factions = Object.keys(VILLAGER_URLS) as Faction[];
   let done = 0;
-  const total = 2;
+  const total = 3 + factions.length; // palm + villagers + two neutral characters
   const tick = () => { done++; onProgress?.(done / total); };
 
   const palmJob = loader.loadAsync(palmUrl)
@@ -56,12 +79,31 @@ export function loadAssets(onProgress?: (frac: number) => void): Promise<void> {
     .catch(err => { console.warn('[assets] palm failed, using procedural trees', err); })
     .finally(tick);
 
-  const villagerJob = loader.loadAsync(villagerUrl)
-    .then(gltf => { assets.greekVillager = prepareCharacter(gltf.scene, gltf.animations, 1.0); })
-    .catch(err => { console.warn('[assets] villager failed, using procedural unit', err); })
-    .finally(tick);
+  // One shared clip library: only the animations are taken from this file,
+  // its mesh is discarded in favour of the per-civilization models.
+  const clipsJob = loader.loadAsync(animationsUrl)
+    .then(gltf => prepareClips(gltf.animations))
+    .catch(err => {
+      console.warn('[assets] villager animations failed, using procedural units', err);
+      return new Map<string, THREE.AnimationClip>();
+    });
 
-  loadPromise = Promise.all([palmJob, villagerJob]).then(() => {
+  const villagerJobs = factions.map(f =>
+    Promise.all([loader.loadAsync(VILLAGER_URLS[f]), clipsJob])
+      .then(([gltf, clips]) => { assets.villagers[f] = prepareCharacter(gltf.scene, clips, 1.0); })
+      .catch(err => { console.warn(`[assets] ${f} villager failed, using procedural unit`, err); })
+      .finally(tick)
+  );
+
+  // Neutral wilds characters ride the same rig and clip library.
+  const wildsJobs = ([['woman', womanUrl], ['bandit', banditUrl]] as const).map(([key, url]) =>
+    Promise.all([loader.loadAsync(url), clipsJob])
+      .then(([gltf, clips]) => { assets.wilds[key] = prepareCharacter(gltf.scene, clips, 1.0); })
+      .catch(err => { console.warn(`[assets] neutral ${key} failed, using procedural unit`, err); })
+      .finally(tick)
+  );
+
+  loadPromise = Promise.all([palmJob, ...villagerJobs, ...wildsJobs]).then(() => {
     assets.loaded = true;
   });
   return loadPromise;
@@ -125,13 +167,24 @@ function preparePalm(scene: THREE.Object3D): PropAsset | null {
 }
 
 // ---------------------------------------------------------------- character
+/** Root motion is stripped once; the clips are then shared by every model. */
+function prepareClips(animations: THREE.AnimationClip[]): Map<string, THREE.AnimationClip> {
+  const clips = new Map<string, THREE.AnimationClip>();
+  for (const clip of animations) {
+    stripRootMotion(clip);
+    clips.set(clip.name, clip);
+  }
+  return clips;
+}
+
 /**
  * Prepare a rigged character. The template is never added to the scene —
- * each unit gets a skeleton clone of it.
+ * each unit gets a skeleton clone of it. Clips are bound by bone name, so the
+ * same library drives every civilization's villager.
  */
 function prepareCharacter(
   scene: THREE.Object3D,
-  animations: THREE.AnimationClip[],
+  clips: Map<string, THREE.AnimationClip>,
   targetHeight: number
 ): CharAsset | null {
   scene.updateMatrixWorld(true);
@@ -158,13 +211,9 @@ function prepareCharacter(
       sm.needsUpdate = true;
     }
   });
-  if (!hasSkin) return null;
-
-  const clips = new Map<string, THREE.AnimationClip>();
-  for (const clip of animations) {
-    stripRootMotion(clip);
-    clips.set(clip.name, clip);
-  }
+  // Without a skeleton or clips the model would stand frozen in its bind
+  // pose — the procedural villager reads better than that.
+  if (!hasSkin || clips.size === 0) return null;
 
   return { template: scene, clips, scale, yaw: 0 };
 }

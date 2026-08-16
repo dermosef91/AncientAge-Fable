@@ -101,6 +101,32 @@ export const UNITS: Record<UnitTypeId, UnitDef> = {
     name: 'Trade Cart', short: 'Cart', cost: { wood: 45, gold: 15 }, hp: 52, atk: 0, range: 0,
     armor: 0, speed: 3.1, trainTime: 16, aggro: 0, pop: 1, radius: 0.36, cooldown: 1, age: 1,
     desc: 'Hauls goods to the trading post and returns with gold.'
+  },
+  // ---- the wilds (owner 2, never trained) ----
+  gazelle: {
+    name: 'Gazelle', short: 'Gazelle', cost: {}, hp: 26, atk: 0, range: 0,
+    armor: 0, speed: 3.45, trainTime: 0, aggro: 0, pop: 0, radius: 0.24, cooldown: 1, age: 0,
+    desc: 'Swift game. Hunt it and butcher the carcass for food.'
+  },
+  boar: {
+    name: 'Wild Boar', short: 'Boar', cost: {}, hp: 90, atk: 9, range: 0,
+    armor: 0, speed: 3.15, trainTime: 0, aggro: 0, pop: 0, radius: 0.3, cooldown: 1.3, age: 0,
+    desc: 'Ill-tempered and dangerous. Rich meat for the brave.'
+  },
+  wolf: {
+    name: 'Wolf', short: 'Wolf', cost: {}, hp: 44, atk: 6, range: 0,
+    armor: 0, speed: 3.85, trainTime: 0, aggro: 6.5, pop: 0, radius: 0.26, cooldown: 1.15, age: 0,
+    desc: 'A pack hunter with a taste for stray villagers.'
+  },
+  mercenary: {
+    name: 'Mercenary', short: 'Merc', cost: {}, hp: 86, atk: 9, range: 0,
+    armor: 1, speed: 3.0, trainTime: 0, aggro: 0, pop: 1, radius: 0.29, cooldown: 1.1, age: 0,
+    desc: 'A deserter selling his spear to whoever pays.'
+  },
+  refugee: {
+    name: 'Refugee', short: 'Refugee', cost: {}, hp: 24, atk: 0, range: 0,
+    armor: 0, speed: 2.6, trainTime: 0, aggro: 0, pop: 0, radius: 0.25, cooldown: 1, age: 0,
+    desc: 'Displaced folk. Lead them to a Town Center and they will settle.'
   }
 };
 
@@ -221,6 +247,23 @@ export const BUILDINGS: Record<BuildingTypeId, BuildingDef> = {
     name: 'Wonder', cost: { wood: 300, stone: 350, gold: 300 }, hp: 3000, size: 4, buildTime: 150,
     age: 3,
     desc: 'The crowning work of your people. Complete it and hold it to win.'
+  },
+  // ---- encounter props (owner 2, placed at map gen, never in the build menu) ----
+  den: {
+    name: 'Wolf Den', cost: {}, hp: 340, size: 2, buildTime: 1, age: 0,
+    desc: 'A pack hunts these lands. Raze the den to end the raids.'
+  },
+  camp: {
+    name: "Deserters' Camp", cost: {}, hp: 520, size: 3, buildTime: 1, age: 0,
+    desc: 'Lawless soldiers with a price. Pay it, or take their stash by force.'
+  },
+  cairn: {
+    name: 'Old Cairn', cost: {}, hp: 260, size: 1, buildTime: 1, age: 0,
+    desc: 'Something lies buried here. Send a villager to dig it up.'
+  },
+  pedestal: {
+    name: 'Golden Idol', cost: {}, hp: 260, size: 1, buildTime: 1, age: 0,
+    desc: 'A relic of a forgotten people. Carry it home to your Town Center.'
   }
 };
 
@@ -331,17 +374,53 @@ export const FACTIONS: Record<Faction, FactionDef> = {
 };
 
 export const NODE_AMOUNT: Record<NodeKind, number> = {
-  tree: 90, berries: 160, stone: 400, gold: 420, fish: 380
+  tree: 90, berries: 160, stone: 400, gold: 420, fish: 380, carcass: 100
 };
 
 export const GATHER_RATE: Record<NodeKind, number> = {
-  tree: 0.8, berries: 0.9, stone: 0.68, gold: 0.68, fish: 1.05
+  tree: 0.8, berries: 0.9, stone: 0.68, gold: 0.68, fish: 1.05, carcass: 1.15
 };
 
 export const FARM_FOOD = 320;
 export const FARM_RATE = 0.75;
 export const CARRY_CAP = 10;
 export const FARM_RESEED_COST = 20; // wood
+
+// ---------------------------------------------------------------- encounters
+/** Owner index of the neutral third power — animals, deserters, treasures. */
+export const WILDS = 2;
+
+export interface BoonDef {
+  name: string;
+  desc: string;
+  /** Seconds; 0 = permanent. */
+  dur: number;
+}
+
+export const BOONS: Record<string, BoonDef> = {
+  pelts: { name: 'Wolf Pelts', desc: 'Villagers are hardier (+25% HP)', dur: 0 },
+  gratitude: { name: 'Gratitude', desc: 'The rescued lend their hands (+20% build speed)', dur: 120 },
+  idol: { name: 'Golden Idol', desc: 'A steady trickle of gold', dur: 0 }
+};
+
+/** Balance knobs for the encounter layer. */
+export const ENC = {
+  // placement counts
+  herdSites: 6, denSites: 2, campSites: 2, cacheSites: 6, refugeeSites: 2,
+  // wolves
+  wolfRaidGrace: 240, wolfRaidEvery: 85, wolfRaidRange: 38, wolfCap: 4,
+  // deserters
+  mercCount: 3, mercPrice: 140, campLoot: 90, offerR: 6,
+  // cairns
+  digTime: 8, digR: 1.9,
+  // refugees
+  refugeeCount: 3, refugeeR: 5,
+  // herds
+  gazelleFood: 75, boarFood: 170,
+  carcassRotRate: 0.9,
+  // the Golden Idol
+  relicPickupR: 1.7, relicDepositR: 1.8, idolGoldRate: 0.5
+};
 
 // ---------------------------------------------------------------- trade
 /** Gold per trade run: base + per-tile distance between market and post. */

@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { BUILDINGS } from '../core/config';
 import type { BuildingTypeId, Faction, NodeKind, UnitTypeId } from '../core/types';
 import { Parts } from './parts';
+import { wildsBuilding, wildsNode, wildsUnit } from './wilds';
 
 // ---------------------------------------------------------------- palette
 export const PAL = {
@@ -56,12 +57,22 @@ function cached(key: string, make: (p: Parts) => void, post?: (g: THREE.BufferGe
 }
 
 // ---------------------------------------------------------------- shared motifs
+/** Rotate a local facade offset (ox = along wall, oz = out of wall) around y. */
+function facade(x: number, z: number, ry: number, ox: number, oz: number): [number, number] {
+  const c = Math.cos(ry), s = Math.sin(ry);
+  return [x + ox * c + oz * s, z - ox * s + oz * c];
+}
+
 function colonnade(p: Parts, s: Style, count: number, x0: number, x1: number, y: number, z: number, h: number, r = 0.09) {
   for (let i = 0; i < count; i++) {
     const x = x0 + (x1 - x0) * (count === 1 ? 0.5 : i / (count - 1));
     p.cyl(s.column, r, r, h, x, y + h / 2, z, { seg: 7 });
+    // capital: echinus disc under a square abacus
+    p.cyl(s.column, r * 1.3, r * 1.05, 0.045, x, y + h - 0.045, z, { seg: 7, shade: 1.03 });
     p.box(s.column, r * 2.6, 0.06, r * 2.6, x, y + h + 0.03, z);
+    // base: plinth block + torus ring
     p.box(s.column, r * 2.2, 0.05, r * 2.2, x, y + 0.025, z);
+    p.cyl(s.column, r * 1.25, r * 1.35, 0.05, x, y + 0.075, z, { seg: 7, shade: 0.97 });
   }
 }
 
@@ -72,13 +83,101 @@ function crenellations(p: Parts, color: number, w: number, y: number, z: number,
   }
 }
 
-function doorway(p: Parts, color: number, w: number, h: number, x: number, y: number, z: number) {
-  p.box(color, w, h, 0.06, x, y + h / 2, z);
+/** Plank door with seams and a handle; optional stone frame + lintel. */
+function doorway(p: Parts, color: number, w: number, h: number, x: number, y: number, z: number,
+  o: { ry?: number; frame?: number } = {}) {
+  const ry = o.ry ?? 0;
+  const at = (ox: number, oz: number) => facade(x, z, ry, ox, oz);
+  let [px, pz] = at(0, 0);
+  p.box(color, w, h, 0.06, px, y + h / 2, pz, { ry });
+  for (const sx of [-1, 1]) {
+    [px, pz] = at(sx * w * 0.18, 0.012);
+    p.box(color, 0.016, h * 0.9, 0.06, px, y + h / 2, pz, { ry, shade: 0.72 });
+  }
+  [px, pz] = at(w * 0.28, 0.02);
+  p.sphere(PAL.gold, 0.024, px, y + h * 0.5, pz, { seg: 4 });
+  if (o.frame !== undefined) {
+    for (const sx of [-1, 1]) {
+      [px, pz] = at(sx * (w / 2 + 0.05), 0.004);
+      p.box(o.frame, 0.1, h + 0.05, 0.09, px, y + h / 2 + 0.02, pz, { ry, shade: 0.96 });
+    }
+    [px, pz] = at(0, 0.012);
+    p.box(o.frame, w + 0.3, 0.1, 0.1, px, y + h + 0.09, pz, { ry, shade: 1.05 });
+  }
 }
 
-function flagpole(p: Parts, x: number, y: number, z: number, h: number) {
+/** Framed window: dark opening, stone surround, lintel and sill. Faces +z. */
+function win(p: Parts, frameColor: number, x: number, y: number, z: number,
+  o: { ry?: number; w?: number; h?: number } = {}) {
+  const w = o.w ?? 0.17, h = o.h ?? 0.24, ry = o.ry ?? 0;
+  const at = (ox: number, oz: number) => facade(x, z, ry, ox, oz);
+  let [px, pz] = at(0, 0.01);
+  p.box(0x33291f, w, h, 0.05, px, y, pz, { ry });
+  [px, pz] = at(0, -0.002);
+  p.box(frameColor, w + 0.09, h + 0.08, 0.05, px, y, pz, { ry, shade: 0.92 });
+  [px, pz] = at(0, 0.02);
+  p.box(frameColor, w + 0.14, 0.05, 0.06, px, y + h / 2 + 0.05, pz, { ry, shade: 1.04 });
+  p.box(frameColor, w + 0.1, 0.04, 0.08, px, y - h / 2 - 0.035, pz, { ry, shade: 0.97 });
+}
+
+/** Shrinking stone steps descending from a doorway; faces +z. */
+function steps(p: Parts, color: number, w: number, x: number, y: number, z: number,
+  o: { n?: number; ry?: number } = {}) {
+  const n = o.n ?? 3, ry = o.ry ?? 0;
+  for (let i = 0; i < n; i++) {
+    const [px, pz] = facade(x, z, ry, 0, i * 0.14);
+    p.box(color, w - i * 0.1, 0.06 * (n - i), 0.15, px, y + 0.03 * (n - i), pz, { ry, shade: 1 + i * 0.025 });
+  }
+}
+
+/** Gabled roof upgraded with tile seams, ridge cap and fascia boards. */
+function gabledRoof(p: Parts, s: { roof: number }, w: number, h: number, d: number, x: number, y: number, z: number) {
+  p.prism(s.roof, w, h, d, x, y, z);
+  const th = Math.atan2(h, w / 2);
+  const L = Math.hypot(h, w / 2);
+  const nx = h / L, ny = (w / 2) / L; // outward slope normal
+  for (const sx of [-1, 1]) {
+    // tile course seams lying on the slope
+    for (const t of [0.3, 0.62]) {
+      const px = x + sx * ((w / 2) * (1 - t) + nx * 0.012);
+      const py = y + h * t + ny * 0.012;
+      p.box(s.roof, 0.07, 0.035, d + 0.05, px, py, z, { rz: -sx * th, shade: 0.82 });
+    }
+    // fascia board along the eave
+    p.box(s.roof, 0.06, 0.11, d + 0.04, x + sx * (w / 2 - 0.015), y + 0.01, z, { shade: 0.72 });
+  }
+  // ridge cap
+  p.box(s.roof, 0.13, 0.055, d + 0.08, x, y + h + 0.01, z, { shade: 0.68 });
+}
+
+/** Hanging wall banner on a gilded rod, with a pointed tail and emblem. */
+function wallBanner(p: Parts, s: Style, x: number, y: number, z: number, ry = 0, k = 1) {
+  const at = (ox: number, oz: number) => facade(x, z, ry, ox, oz);
+  let [px, pz] = at(0, 0.045);
+  p.box(PAL.gold, 0.3 * k, 0.035, 0.04, px, y, pz, { ry });
+  [px, pz] = at(0, 0.03);
+  p.box(s.accent, 0.24 * k, 0.46 * k, 0.03, px, y - 0.24 * k, pz, { ry });
+  p.cone(s.accent, 0.12 * k, 0.2 * k, px, y - 0.56 * k, pz, { seg: 4, rx: Math.PI, ry: ry + Math.PI / 4, sz: 0.24 });
+  [px, pz] = at(0, 0.05);
+  p.box(PAL.gold, 0.085 * k, 0.085 * k, 0.02, px, y - 0.24 * k, pz, { ry, rz: Math.PI / 4 });
+}
+
+/** Woven basket piled with produce. */
+function basket(p: Parts, x: number, z: number, k = 1) {
+  p.cyl(0xb08d5a, 0.11 * k, 0.085 * k, 0.14 * k, x, 0.07 * k, z, { seg: 7 });
+  p.cyl(0x9c7a48, 0.115 * k, 0.11 * k, 0.03 * k, x, 0.15 * k, z, { seg: 7 });
+  p.sphere(0xd8b455, 0.045 * k, x - 0.03 * k, 0.17 * k, z, { seg: 4 });
+  p.sphere(PAL.berry, 0.04 * k, x + 0.04 * k, 0.17 * k, z + 0.02 * k, { seg: 4 });
+  p.sphere(0x8fa05a, 0.042 * k, x, 0.18 * k, z - 0.04 * k, { seg: 4 });
+}
+
+function flagpole(p: Parts, x: number, y: number, z: number, h: number, pennant?: number) {
   p.cyl(PAL.woodDark, 0.025, 0.03, h, x, y + h / 2, z, { seg: 5 });
   p.sphere(PAL.gold, 0.045, x, y + h, z, { seg: 6 });
+  if (pennant !== undefined) {
+    p.box(pennant, 0.26, 0.14, 0.025, x + 0.15, y + h - 0.12, z);
+    p.cone(pennant, 0.07, 0.14, x + 0.33, y + h - 0.12, z, { seg: 4, rz: -Math.PI / 2, sz: 0.3 });
+  }
 }
 
 function crates(p: Parts, x: number, z: number, s = 1) {
@@ -123,13 +222,16 @@ export function buildingGeo(type: BuildingTypeId, faction: Faction, tier = 0): T
       case 'lighthouse': lighthouseB(p, s, faction); break;
       case 'forum': forumB(p, s, faction); break;
       case 'wonder': wonderB(p, s, faction); break;
+      default: wildsBuilding(p, type); break; // encounter props (den, camp, …)
     }
     if (!NO_DRESS.has(type)) dress(p, s, tier, BUILDINGS[type].size);
   });
 }
 
-/** Flat or already-ornamental types skip the generic age dressing. */
-const NO_DRESS = new Set<BuildingTypeId>(['wall', 'farm', 'plaza', 'garden', 'statue']);
+/** Flat, already-ornamental or wilds types skip the generic age dressing. */
+const NO_DRESS = new Set<BuildingTypeId>([
+  'wall', 'farm', 'plaza', 'garden', 'statue', 'den', 'camp', 'cairn', 'pedestal'
+]);
 
 /**
  * Age dressing: the same building grows prettier every epoch.
@@ -171,7 +273,8 @@ export const BUILDING_VIS_HEIGHT: Record<BuildingTypeId, number> = {
   towncenter: 3.0, house: 1.5, farm: 0.7, storehouse: 1.5, barracks: 1.8,
   range: 1.7, tower: 2.9, wall: 1.4, monument: 3.2, dock: 1.5,
   market: 1.6, shrine: 1.5, temple: 2.2, amphitheater: 1.6, academy: 1.9,
-  statue: 1.9, garden: 0.7, plaza: 0.2, lighthouse: 3.4, forum: 1.9, wonder: 3.6
+  statue: 1.9, garden: 0.7, plaza: 0.2, lighthouse: 3.4, forum: 1.9, wonder: 3.6,
+  den: 1.2, camp: 1.7, cairn: 0.8, pedestal: 1.3
 };
 
 function towncenter(p: Parts, s: Style, f: Faction) {
@@ -184,12 +287,20 @@ function towncenter(p: Parts, s: Style, f: Faction) {
       p.cyl(s.wall, 0.42, 0.62, 1.9, sx * 1.05, 1.25, 1.15, { seg: 4, ry: Math.PI / 4 });
       p.box(s.accent, 0.78, 0.12, 0.78, sx * 1.05, 2.14, 1.15, { ry: Math.PI / 4 });
       p.box(PAL.gold, 0.7, 0.07, 0.7, sx * 1.05, 2.24, 1.15, { ry: Math.PI / 4 });
+      // hanging banners on the pylon faces + crowning pennants
+      wallBanner(p, s, sx * 1.05, 1.7, 1.44, 0, 1.05);
+      flagpole(p, sx * 1.05, 2.28, 1.15, 0.55, s.accent);
     }
     p.box(s.wall, 1.35, 1.15, 0.5, 0, 0.9, 1.12);
     p.box(s.accent, 1.35, 0.12, 0.54, 0, 1.52, 1.12);
-    doorway(p, 0x3a2c1c, 0.55, 0.8, 0, 0.3, 1.42);
+    doorway(p, 0x3a2c1c, 0.55, 0.8, 0, 0.3, 1.42, { frame: s.wallDark });
+    steps(p, PAL.sandLight, 0.9, 0, 0, 1.6);
     // main hall — flat mud roof ringed by a painted cornice
     p.box(s.wall, 2.9, 1.25, 2.2, 0, 0.95, -0.5);
+    win(p, s.wallDark, -1.0, 1.1, 0.63);
+    win(p, s.wallDark, 1.0, 1.1, 0.63);
+    win(p, s.wallDark, -1.47, 1.1, -0.5, { ry: -Math.PI / 2 });
+    win(p, s.wallDark, 1.47, 1.1, -0.5, { ry: Math.PI / 2 });
     p.box(s.roof, 3.0, 0.16, 2.3, 0, 1.6, -0.5, { shade: 1.05 });
     const trim: [number, number, number, number][] = [
       [0, 0.58, 3.0, 0.16],   // front edge
@@ -217,34 +328,50 @@ function towncenter(p: Parts, s: Style, f: Faction) {
     // stepped stylobate
     p.box(s.wall, 3.4, 0.18, 3.0, 0, 0.42, 0);
     p.box(s.wallDark, 3.1, 0.14, 2.7, 0, 0.58, 0);
+    steps(p, s.wall, 1.4, 0, 0, 1.55);
     // cella
     p.box(s.wall, 2.3, 1.35, 2.0, 0, 1.25, -0.2);
-    doorway(p, 0x37455e, 0.5, 0.85, 0, 0.65, 0.82);
+    doorway(p, 0x37455e, 0.5, 0.85, 0, 0.65, 0.82, { frame: s.wallDark });
+    win(p, s.wallDark, -1.17, 1.35, -0.2, { ry: -Math.PI / 2 });
+    win(p, s.wallDark, 1.17, 1.35, -0.2, { ry: Math.PI / 2 });
     // front columns
     colonnade(p, s, 5, -1.35, 1.35, 0.65, 1.15, 1.25, 0.1);
     p.box(s.trim, 3.15, 0.18, 0.4, 0, 2.0, 1.15);
-    // architrave + roof
+    // banners between the outer columns
+    wallBanner(p, s, -0.68, 1.72, 1.28, 0, 0.9);
+    wallBanner(p, s, 0.68, 1.72, 1.28, 0, 0.9);
+    // architrave + tiled roof with antefix studs on the front eave
     p.box(s.wallDark, 3.2, 0.16, 2.75, 0, 2.03, -0.1);
-    p.prism(s.roof, 3.5, 0.85, 3.1, 0, 2.12, -0.1);
+    gabledRoof(p, s, 3.5, 0.85, 3.1, 0, 2.12, -0.1);
     p.box(s.trim, 3.55, 0.09, 0.2, 0, 2.16, 1.42);
+    for (const ax of [-1.35, -0.45, 0.45, 1.35]) p.box(s.trim, 0.09, 0.1, 0.06, ax, 2.28, 1.46);
+    // gilded pediment emblem
+    p.box(PAL.gold, 0.5, 0.22, 0.05, 0, 2.5, 1.38);
     p.sphere(PAL.gold, 0.07, 0, 3.0, -0.1, { seg: 5 });
   } else {
     // roman villa: main block + wings + arch entry
     p.box(s.wall, 2.7, 1.35, 2.0, 0, 1.0, -0.45);
-    p.prism(s.roof, 3.0, 0.8, 2.35, 0, 1.68, -0.45);
-    p.box(s.wall, 1.1, 0.95, 1.5, -1.55, 0.8, 0.4);
-    p.prism(s.roof, 1.3, 0.5, 1.7, -1.55, 1.28, 0.4);
-    p.box(s.wall, 1.1, 0.95, 1.5, 1.55, 0.8, 0.4);
-    p.prism(s.roof, 1.3, 0.5, 1.7, 1.55, 1.28, 0.4);
+    gabledRoof(p, s, 3.0, 0.8, 2.35, 0, 1.68, -0.45);
+    win(p, s.wallDark, -0.85, 1.15, 0.56);
+    win(p, s.wallDark, 0.85, 1.15, 0.56);
+    for (const sx of [-1, 1]) {
+      p.box(s.wall, 1.1, 0.95, 1.5, sx * 1.55, 0.8, 0.4);
+      gabledRoof(p, s, 1.3, 0.5, 1.7, sx * 1.55, 1.28, 0.4);
+      win(p, s.wallDark, sx * 1.55, 0.85, 1.16, { w: 0.15, h: 0.2 });
+    }
     // arch entrance
     for (const sx of [-1, 1]) p.box(s.column, 0.28, 1.1, 0.3, sx * 0.55, 0.85, 1.35);
     p.torus(s.column, 0.55, 0.13, Math.PI, 0, 1.4, 1.35, { rz: 0 });
     p.box(s.trim, 1.5, 0.16, 0.34, 0, 1.78, 1.35);
-    doorway(p, 0x40302a, 0.6, 0.9, 0, 0.32, 1.28);
-    // standards
-    for (const sx of [-1, 1]) flagpole(p, sx * 1.7, 0.3, 1.55, 1.3);
-    p.box(s.accent, 0.5, 0.34, 0.04, -1.7, 1.15, 1.55);
-    p.box(PAL.gold, 0.5, 0.05, 0.05, -1.7, 1.35, 1.55);
+    p.box(PAL.gold, 0.14, 0.14, 0.03, 0, 1.62, 1.53, { rz: Math.PI / 4 }); // keystone stud
+    doorway(p, 0x40302a, 0.6, 0.9, 0, 0.32, 1.28, { frame: s.wallDark });
+    steps(p, s.column, 1.1, 0, 0, 1.62);
+    // standards flanking the gate
+    for (const sx of [-1, 1]) {
+      flagpole(p, sx * 1.7, 0.3, 1.55, 1.3, s.accent);
+      p.box(s.accent, 0.5, 0.34, 0.04, sx * 1.7, 1.15, 1.55);
+      p.box(PAL.gold, 0.5, 0.05, 0.05, sx * 1.7, 1.35, 1.55);
+    }
   }
 }
 
@@ -255,24 +382,44 @@ function house(p: Parts, s: Style, f: Faction) {
     p.box(s.wallDark, 1.55, 0.12, 1.55, 0, 1.06, 0);
     crenellations(p, s.wall, 1.5, 1.18, 0.72, 3);
     crenellations(p, s.wall, 1.5, 1.18, -0.72, 3);
-    doorway(p, 0x3a2c1c, 0.4, 0.6, 0, 0.14, 0.74);
-    // striped awning
+    doorway(p, 0x3a2c1c, 0.4, 0.6, 0, 0.14, 0.74, { frame: s.wallDark });
+    win(p, s.wallDark, -0.45, 0.75, 0.74, { w: 0.14, h: 0.18 });
+    win(p, s.wallDark, 0.74, 0.7, 0.35, { ry: Math.PI / 2, w: 0.14, h: 0.18 });
+    // striped awning on carved posts
     p.box(s.accent, 0.8, 0.04, 0.5, 0, 0.95, 0.95, { rx: 0.25 });
     p.box(PAL.cloth, 0.8, 0.045, 0.25, 0, 1.0, 0.83, { rx: 0.25 });
-    for (const sx of [-1, 1]) p.cyl(PAL.woodDark, 0.02, 0.02, 0.85, sx * 0.36, 0.45, 1.1, { seg: 4 });
+    for (const sx of [-1, 1]) {
+      p.cyl(PAL.woodDark, 0.02, 0.02, 0.85, sx * 0.36, 0.45, 1.1, { seg: 4 });
+      p.sphere(PAL.gold, 0.028, sx * 0.36, 0.89, 1.1, { seg: 4 });
+    }
+    // rooftop water jars + drying cloth
+    amphora(p, 0xb5744a, 0.45, 1.12, 0.72);
+    p.box(PAL.cloth, 0.4, 0.025, 0.3, -0.35, 1.14, -0.2, { ry: 0.3, shade: 1.05 });
     amphora(p, 0xb5744a, 0.55, 0.62, 0.8);
   } else if (f === 'greece') {
     p.box(s.wall, 1.4, 0.85, 1.3, 0, 0.56, 0);
-    p.prism(s.roof, 1.66, 0.55, 1.56, 0, 0.98, 0);
-    doorway(p, 0x37455e, 0.4, 0.6, 0, 0.14, 0.67);
+    gabledRoof(p, s, 1.66, 0.55, 1.56, 0, 0.98, 0);
+    doorway(p, 0x37455e, 0.4, 0.6, 0, 0.14, 0.67, { frame: s.wallDark });
+    win(p, s.wallDark, -0.42, 0.68, 0.66, { w: 0.14, h: 0.2 });
+    win(p, s.wallDark, 0.71, 0.62, 0.3, { ry: Math.PI / 2, w: 0.14, h: 0.18 });
     p.box(s.accent, 0.5, 0.1, 0.05, 0, 0.85, 0.68);
+    // trellis with climbing vine against the wall
+    p.box(PAL.woodDark, 0.4, 0.5, 0.03, -0.55, 0.5, 0.66);
+    p.sphere(PAL.olive, 0.13, -0.55, 0.62, 0.68, { sy: 0.6 });
+    p.sphere(PAL.oliveDark, 0.09, -0.45, 0.45, 0.68, { sy: 0.6 });
     amphora(p, 0x9c5a3c, -0.6, 0.55, 0.9);
   } else {
     p.box(s.wall, 1.45, 0.8, 1.35, 0, 0.54, 0);
-    p.prism(s.roof, 1.7, 0.5, 1.6, 0, 0.94, 0);
+    gabledRoof(p, s, 1.7, 0.5, 1.6, 0, 0.94, 0);
     p.box(s.roof, 1.74, 0.07, 0.3, 0, 0.96, 0.68, { shade: 0.9 });
-    doorway(p, 0x40302a, 0.4, 0.62, 0.25, 0.14, 0.7);
+    doorway(p, 0x40302a, 0.4, 0.62, 0.25, 0.14, 0.7, { frame: s.wallDark });
+    win(p, s.wallDark, -0.35, 0.68, 0.71, { w: 0.15, h: 0.2 });
+    win(p, s.wallDark, 0.74, 0.62, -0.2, { ry: Math.PI / 2, w: 0.14, h: 0.18 });
     p.box(s.column, 0.5, 0.05, 0.06, 0.25, 0.8, 0.71);
+    // window flower box
+    p.box(PAL.woodDark, 0.3, 0.07, 0.09, -0.35, 0.52, 0.73);
+    p.sphere(0xd8687a, 0.035, -0.42, 0.58, 0.73, { seg: 4 });
+    p.sphere(0xe8e0a0, 0.035, -0.3, 0.58, 0.73, { seg: 4 });
     crates(p, -0.6, 0.55, 0.7);
   }
 }
@@ -294,17 +441,46 @@ function farmBase(p: Parts, s: Style, f: Faction) {
   p.box(PAL.wood, 0.05, 0.045, 2.85, 1.42, 0.3, 0);
 }
 
+/** Farm crops: golden wheat (Egypt), staked grapevines (Greece), leafy
+ *  vegetable rows (Rome). Withered fields turn to dry stubble. */
 export function cropGeo(faction: Faction, withered: boolean): THREE.BufferGeometry {
   return cached(`crop_${faction}_${withered}`, p => {
-    const color = withered ? 0x8f7d52 :
-      faction === 'egypt' ? PAL.wheat : faction === 'greece' ? 0x8fa05a : 0x7d9c4f;
     for (let r = 0; r < 4; r++) {
       const z = -1.0 + r * 0.66;
       for (let i = 0; i < 6; i++) {
-        const x = -1.05 + i * 0.42;
-        p.box(color, 0.3, 0.22 + ((i + r) % 3) * 0.05, 0.28, x, 0.2, z, {
-          ry: (i * 0.7 + r) % 1, shade: 0.92 + ((i * 3 + r) % 4) * 0.05
-        });
+        // stagger alternate rows so the field reads as planted, not stamped
+        const x = -1.05 + i * 0.42 + (r % 2) * 0.13;
+        const rnd = (i * 3 + r * 7) % 5;           // stable per-plant variation
+        const k = 0.85 + rnd * 0.07;               // size
+        const sh = 0.92 + ((i + r * 3) % 4) * 0.05; // tint
+        if (withered) {
+          // dry stubble: a few bent brown stalks
+          for (let s = 0; s < 3; s++) {
+            const a = s * 2.1 + i * 1.3 + r;
+            p.cone(0x8f7d52, 0.022, 0.16 * k, x + Math.cos(a) * 0.06, 0.08, z + Math.sin(a) * 0.06,
+              { seg: 3, rx: Math.sin(a) * 0.45, rz: Math.cos(a) * 0.45, shade: sh });
+          }
+        } else if (faction === 'egypt') {
+          // wheat sheaf: splayed golden stalks, bright seed tips
+          for (let s = 0; s < 4; s++) {
+            const a = s * 1.6 + i * 1.3 + r;
+            const h = (0.3 + (s % 2) * 0.09) * k;
+            p.cone(PAL.wheat, 0.026, h, x + Math.cos(a) * 0.055, h / 2, z + Math.sin(a) * 0.055,
+              { seg: 4, rx: Math.sin(a) * 0.22, rz: Math.cos(a) * 0.22, shade: sh });
+          }
+          p.sphere(0xe8cd76, 0.045 * k, x, 0.34 * k, z, { seg: 4, sy: 1.6, shade: sh });
+        } else if (faction === 'greece') {
+          // grapevine on a stake, clusters on every other plant
+          p.cyl(PAL.woodDark, 0.016, 0.02, 0.38 * k, x, 0.19 * k, z, { seg: 4 });
+          p.sphere(0x5f8a3c, 0.11 * k, x, 0.34 * k, z, { seg: 5, sy: 0.85, shade: sh });
+          p.sphere(0x548034, 0.07 * k, x + 0.06, 0.26 * k, z + 0.04, { seg: 4, shade: sh * 0.95 });
+          if (rnd < 3) p.sphere(0x5c3a6e, 0.035 * k, x - 0.06, 0.24 * k, z - 0.03, { seg: 4 });
+        } else {
+          // roman kitchen garden: cabbage heads in tilled rows
+          p.sphere(0x6f9c48, 0.11 * k, x, 0.08 * k, z, { seg: 5, sy: 0.75, shade: sh });
+          p.sphere(0x8fb85c, 0.06 * k, x, 0.13 * k, z, { seg: 4, shade: sh });
+          if (rnd < 2) p.cone(0x5f8a3c, 0.03, 0.1 * k, x + 0.09, 0.06, z + 0.05, { seg: 3, rz: 0.4, shade: sh });
+        }
       }
     }
   });
@@ -313,28 +489,44 @@ export function cropGeo(faction: Faction, withered: boolean): THREE.BufferGeomet
 function storehouse(p: Parts, s: Style, f: Faction) {
   p.box(PAL.sandLight, 1.85, 0.14, 1.85, 0, 0.07, 0);
   if (f === 'egypt') {
-    // granary domes
+    // granary domes with masonry rings and a ladder to the hatch
     p.sphere(s.wall, 0.52, -0.4, 0.45, -0.3, { sy: 1.25 });
+    p.cyl(s.wallDark, 0.43, 0.46, 0.05, -0.4, 0.42, -0.3, { seg: 8, shade: 1.02 });
     p.sphere(s.wallDark, 0.44, 0.5, 0.4, 0.25, { sy: 1.25 });
+    p.cyl(s.wall, 0.36, 0.39, 0.05, 0.5, 0.38, 0.25, { seg: 8, shade: 0.97 });
     p.sphere(s.wall, 0.34, -0.15, 0.3, 0.62, { sy: 1.2 });
+    p.box(0x3a2c1c, 0.14, 0.14, 0.05, -0.4, 0.92, -0.14); // top hatch
     for (const [dx, dz] of [[-0.4, -0.3], [0.5, 0.25]]) {
       p.box(0x3a2c1c, 0.2, 0.26, 0.06, dx, 0.2, dz + 0.42);
     }
+    // wooden ladder against the big dome
+    for (const sx of [-1, 1]) p.cyl(PAL.woodDark, 0.018, 0.018, 0.85, -0.4 + sx * 0.09, 0.44, 0.24, { seg: 4, rx: -0.5 });
+    for (let i = 0; i < 4; i++) p.box(PAL.wood, 0.2, 0.025, 0.03, -0.4, 0.18 + i * 0.19, 0.36 - i * 0.11);
+    basket(p, 0.2, 0.72);
     crates(p, 0.55, -0.55, 0.8);
   } else if (f === 'greece') {
     p.box(s.wall, 1.5, 0.2, 1.3, 0, 0.2, 0);
     colonnade(p, s, 3, -0.55, 0.55, 0.3, 0.5, 0.75, 0.075);
     p.box(s.wall, 1.4, 0.6, 0.6, 0, 0.6, -0.3);
+    win(p, s.wallDark, -0.4, 0.75, 0.02, { w: 0.13, h: 0.16 });
+    win(p, s.wallDark, 0.4, 0.75, 0.02, { w: 0.13, h: 0.16 });
     p.box(s.wallDark, 1.6, 0.12, 1.4, 0, 1.11, 0);
-    p.prism(s.roof, 1.7, 0.42, 1.5, 0, 1.17, 0);
+    gabledRoof(p, s, 1.7, 0.42, 1.5, 0, 1.17, 0);
+    // grain sacks stacked between the columns
+    p.sphere(0xd8c096, 0.13, 0.15, 0.42, 0.5, { sy: 0.8 });
+    p.sphere(0xcbb184, 0.11, -0.18, 0.4, 0.52, { sy: 0.8, shade: 0.95 });
     amphora(p, 0x9c5a3c, -0.6, 0.62, 1);
     amphora(p, 0xb5744a, 0.68, 0.55, 0.85);
   } else {
     p.box(s.wall, 1.5, 0.85, 1.3, 0, 0.56, -0.1);
-    p.prism(s.roof, 1.74, 0.5, 1.55, 0, 0.98, -0.1);
-    doorway(p, 0x40302a, 0.5, 0.6, 0, 0.14, 0.56);
+    gabledRoof(p, s, 1.74, 0.5, 1.55, 0, 0.98, -0.1);
+    doorway(p, 0x40302a, 0.5, 0.6, 0, 0.14, 0.56, { frame: s.wallDark });
+    win(p, s.wallDark, -0.5, 0.75, 0.54, { w: 0.14, h: 0.18 });
     crates(p, 0.55, 0.62, 0.9);
+    // barrel + sack by the door
     p.cyl(0x7a5a38, 0.14, 0.14, 0.3, -0.55, 0.15, 0.62, { seg: 7 });
+    p.cyl(0x6a4c30, 0.145, 0.145, 0.03, -0.55, 0.24, 0.62, { seg: 7 });
+    p.sphere(0xd8c096, 0.11, -0.78, 0.1, 0.42, { sy: 0.75 });
   }
 }
 
@@ -353,7 +545,9 @@ function barracks(p: Parts, s: Style, f: Faction) {
     }
     p.box(s.wall, 1.6, 0.95, 1.1, -0.2, 0.6, -0.45);
     p.box(s.wallDark, 1.7, 0.12, 1.2, -0.2, 1.13, -0.45);
-    doorway(p, 0x3a2c1c, 0.42, 0.62, -0.2, 0.16, 0.12);
+    doorway(p, 0x3a2c1c, 0.42, 0.62, -0.2, 0.16, 0.12, { frame: s.wallDark });
+    win(p, s.wallDark, -0.75, 0.75, 0.11, { w: 0.13, h: 0.17 });
+    wallBanner(p, s, 0.35, 0.95, 0.13, 0, 0.8);
     // weapon rack
     for (let i = 0; i < 3; i++) {
       p.cyl(PAL.woodDark, 0.02, 0.02, 0.8, 0.7 + i * 0.16, 0.5, 0.6, { seg: 4, rz: 0.35 });
@@ -362,8 +556,10 @@ function barracks(p: Parts, s: Style, f: Faction) {
   } else {
     // hall style (greece/rome)
     p.box(s.wall, 2.2, 1.05, 1.7, 0, 0.7, -0.25);
-    p.prism(s.roof, 2.5, 0.65, 2.0, 0, 1.22, -0.25);
-    doorway(p, f === 'greece' ? 0x37455e : 0x40302a, 0.5, 0.7, 0, 0.18, 0.62);
+    gabledRoof(p, s, 2.5, 0.65, 2.0, 0, 1.22, -0.25);
+    doorway(p, f === 'greece' ? 0x37455e : 0x40302a, 0.5, 0.7, 0, 0.18, 0.62, { frame: s.wallDark });
+    win(p, s.wallDark, -1.12, 0.85, -0.25, { ry: -Math.PI / 2, w: 0.14, h: 0.2 });
+    win(p, s.wallDark, 1.12, 0.85, -0.25, { ry: Math.PI / 2, w: 0.14, h: 0.2 });
     // shields on the facade
     for (let i = 0; i < 3; i++) {
       const x = -0.7 + i * 0.7;
@@ -394,9 +590,13 @@ function archeryRange(p: Parts, s: Style, f: Faction) {
     p.box(s.wallDark, 1.5, 0.1, 1.2, -0.65, 1.0, -0.7);
     p.box(s.accent, 1.45, 0.06, 1.15, -0.65, 1.08, -0.7);
   } else {
-    p.prism(s.roof, 1.6, 0.5, 1.3, -0.65, 0.95, -0.7);
+    gabledRoof(p, s, 1.6, 0.5, 1.3, -0.65, 0.95, -0.7);
   }
-  doorway(p, 0x3a2c1c, 0.38, 0.55, -0.65, 0.16, -0.14);
+  doorway(p, 0x3a2c1c, 0.38, 0.55, -0.65, 0.16, -0.14, { frame: s.wallDark });
+  win(p, s.wallDark, -1.36, 0.7, -0.7, { ry: -Math.PI / 2, w: 0.13, h: 0.17 });
+  // strung bow + quiver by the door
+  p.torus(PAL.woodDark, 0.16, 0.014, Math.PI * 0.9, -0.2, 0.55, -0.16, { rz: Math.PI * 0.55 });
+  p.cyl(0x6b4f33, 0.045, 0.045, 0.3, -0.05, 0.35, -0.16, { seg: 5, rz: 0.3 });
   // targets
   for (const [tx, tz, r] of [[0.85, 0.6, 0.34], [0.2, 1.0, 0.28]]) {
     p.cyl(PAL.cloth, r, r, 0.09, tx, 0.55, tz, { seg: 9, rx: Math.PI / 2, rz: -0.15 });
@@ -415,9 +615,12 @@ function archeryRange(p: Parts, s: Style, f: Faction) {
 }
 
 function tower(p: Parts, s: Style, f: Faction) {
-  // stone base
+  // stone base with masonry courses and an arrow slit
   p.box(PAL.sandLight, 1.7, 0.14, 1.7, 0, 0.07, 0);
   p.cyl(s.wallDark, 0.5, 0.66, 1.5, 0, 0.85, 0, { seg: 4, ry: Math.PI / 4 });
+  p.cyl(s.wall, 0.62, 0.64, 0.07, 0, 0.32, 0, { seg: 4, ry: Math.PI / 4, shade: 0.94 });
+  p.cyl(s.wall, 0.56, 0.58, 0.07, 0, 0.85, 0, { seg: 4, ry: Math.PI / 4, shade: 0.94 });
+  p.box(0x33291f, 0.08, 0.3, 0.06, 0, 1.15, 0.62);
   p.box(s.wall, 1.02, 0.16, 1.02, 0, 1.66, 0);
   // wooden platform
   p.box(PAL.wood, 1.35, 0.1, 1.35, 0, 1.78, 0);
@@ -432,7 +635,8 @@ function tower(p: Parts, s: Style, f: Faction) {
   p.box(PAL.wood, 0.05, 0.05, 1.3, 0.62, 2.1, 0);
   // canopy
   if (f === 'greece' || f === 'rome') {
-    p.prism(s.roof, 1.5, 0.45, 1.5, 0, 2.32, 0);
+    gabledRoof(p, s, 1.5, 0.45, 1.5, 0, 2.32, 0);
+    flagpole(p, 0, 2.77, 0, 0.5, s.accent);
   } else {
     // striped cloth canopy
     for (let i = 0; i < 5; i++) {
@@ -443,6 +647,9 @@ function tower(p: Parts, s: Style, f: Faction) {
 
 function wallSeg(p: Parts, s: Style, f: Faction, tier = 0) {
   p.box(s.wallDark, 0.98, 1.1, 0.98, 0, 0.55, 0);
+  // masonry course lines
+  p.box(s.wall, 1.0, 0.06, 1.0, 0, 0.38, 0, { shade: 0.88 });
+  p.box(s.wall, 1.0, 0.06, 1.0, 0, 0.78, 0, { shade: 0.88 });
   p.box(s.wall, 1.06, 0.22, 1.06, 0, 1.2, 0);
   crenellations(p, s.wall, 1.0, 1.4, 0, 2);
   // Every segment doubles as a gatehouse: wooden doors on each face.
@@ -484,8 +691,10 @@ function monument(p: Parts, s: Style, f: Faction) {
     colonnade(p, s, 5, -0.95, 0.95, 0.52, -0.72, 1.1, 0.08);
     p.box(s.wall, 1.5, 1.0, 1.1, 0, 1.05, 0);
     p.box(s.wallDark, 2.35, 0.16, 1.8, 0, 1.7, 0);
-    p.prism(s.roof, 2.55, 0.6, 1.95, 0, 1.78, 0);
+    gabledRoof(p, s, 2.55, 0.6, 1.95, 0, 1.78, 0);
     p.box(s.trim, 2.6, 0.07, 0.16, 0, 1.8, 0.95);
+    p.box(PAL.gold, 0.4, 0.18, 0.05, 0, 2.05, 0.93); // pediment relief
+    steps(p, s.wall, 1.2, 0, 0, 1.0);
     p.sphere(PAL.gold, 0.06, 0, 2.42, 0, { seg: 5 });
   } else {
     // triumphal arch
@@ -511,17 +720,25 @@ function dock(p: Parts, s: Style, f: Faction) {
   for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
     p.cyl(PAL.woodDark, 0.06, 0.07, 0.9, sx * 0.8, 0.05, sz * 0.8, { seg: 5 });
   }
-  // rope posts
+  // rope posts with slung mooring line
   p.cyl(PAL.woodDark, 0.05, 0.05, 0.4, 0.8, 0.5, 0, { seg: 5 });
   p.cyl(PAL.woodDark, 0.05, 0.05, 0.4, -0.8, 0.5, 0.5, { seg: 5 });
+  p.torus(0xc9b184, 0.09, 0.02, Math.PI * 2, 0.8, 0.62, 0, { rx: Math.PI / 2 });
   // crane
   p.cyl(PAL.woodDark, 0.05, 0.06, 1.1, -0.5, 0.85, -0.5, { seg: 5 });
   p.cyl(PAL.wood, 0.04, 0.04, 0.9, -0.15, 1.3, -0.5, { seg: 4, rz: -Math.PI / 2.3 });
   p.box(PAL.woodDark, 0.02, 0.35, 0.02, 0.25, 1.15, -0.5);
   p.box(PAL.wood, 0.18, 0.14, 0.18, 0.25, 0.95, -0.5);
   crates(p, 0.45, 0.55, 0.85);
+  // coiled rope, fish basket and a lantern post
+  p.torus(0xc9b184, 0.1, 0.035, Math.PI * 2, -0.35, 0.36, 0.55, { rx: Math.PI / 2 });
+  p.cyl(0xb08d5a, 0.1, 0.08, 0.12, 0.15, 0.4, 0.72, { seg: 6 });
+  p.box(0x9ab2b8, 0.05, 0.04, 0.16, 0.12, 0.48, 0.72, { ry: 0.4 });
+  p.box(0x7a949a, 0.04, 0.035, 0.13, 0.19, 0.47, 0.7, { ry: -0.3 });
+  p.cyl(PAL.woodDark, 0.03, 0.03, 0.75, 0.82, 0.72, -0.75, { seg: 4 });
+  p.box(PAL.gold, 0.09, 0.12, 0.09, 0.82, 1.14, -0.75, { shade: 1.1 });
   // pennant
-  flagpole(p, -0.85, 0.34, -0.85, 1.1);
+  flagpole(p, -0.85, 0.34, -0.85, 1.1, 0xb03a2e);
 }
 
 // ---------------------------------------------------------------- city buildings
@@ -533,26 +750,40 @@ function market(p: Parts, s: Style, f: Faction) {
     p.box(s.wallDark, 1.5, 0.1, 1.1, 0, 0.99, -0.8);
     p.box(s.accent, 1.46, 0.06, 1.06, 0, 1.07, -0.8);
   } else {
-    p.prism(s.roof, 1.6, 0.5, 1.25, 0, 0.94, -0.8);
+    gabledRoof(p, s, 1.6, 0.5, 1.25, 0, 0.94, -0.8);
   }
-  doorway(p, 0x3a2c1c, 0.4, 0.55, 0, 0.16, -0.28);
-  // two awning stalls out front
+  doorway(p, 0x3a2c1c, 0.4, 0.55, 0, 0.16, -0.28, { frame: s.wallDark });
+  win(p, s.wallDark, -0.45, 0.7, -0.29, { w: 0.13, h: 0.16 });
+  win(p, s.wallDark, 0.45, 0.7, -0.29, { w: 0.13, h: 0.16 });
+  // two awning stalls out front, with scalloped valances
   for (const sx of [-1, 1]) {
     const x0 = sx * 0.8;
     for (const [px, pz] of [[-0.45, -0.35], [0.45, -0.35], [-0.45, 0.5], [0.45, 0.5]]) {
       p.cyl(PAL.woodDark, 0.028, 0.028, 0.78, x0 + px, 0.39, 0.45 + pz, { seg: 4 });
+      p.sphere(PAL.gold, 0.025, x0 + px, 0.79, 0.45 + pz, { seg: 4 });
     }
     for (let i = 0; i < 4; i++) {
       const stripe = i % 2 === 0 ? (sx < 0 ? s.accent : PAL.gold) : PAL.cloth;
       p.box(stripe, 0.26, 0.04, 1.0, x0 - 0.39 + i * 0.26, 0.82 - i * 0.015, 0.5, { rz: 0.06 });
     }
+    // scalloped valance hanging from the awning's front edge
+    for (let i = 0; i < 5; i++) {
+      const stripe = i % 2 === 0 ? (sx < 0 ? s.accent : PAL.gold) : PAL.cloth;
+      p.box(stripe, 0.2, 0.09, 0.03, x0 - 0.4 + i * 0.2, 0.72, 0.99);
+      p.cone(stripe, 0.07, 0.08, x0 - 0.4 + i * 0.2, 0.64, 0.99, { seg: 4, rx: Math.PI, sz: 0.35 });
+    }
     p.box(PAL.wood, 0.95, 0.07, 0.45, x0, 0.36, 0.62);
+    p.box(PAL.woodDark, 0.95, 0.05, 0.05, x0, 0.15, 0.83); // counter foot rail
     // goods on the counter
     p.sphere(0xd8b455, 0.075, x0 - 0.25, 0.45, 0.6, { seg: 5 });
     p.sphere(PAL.berry, 0.065, x0, 0.44, 0.68, { seg: 5 });
     p.sphere(0x8fa05a, 0.07, x0 + 0.24, 0.45, 0.58, { seg: 5 });
+    basket(p, x0 - 0.35, 1.0, 0.9);
   }
   crates(p, -1.0, -0.35, 0.85);
+  // hanging cloth bolts on the side of the counting house
+  p.box(0x8a4a3c, 0.04, 0.3, 0.22, -0.74, 0.6, -0.75);
+  p.box(0x4a6b8a, 0.04, 0.26, 0.2, -0.74, 0.56, -0.5);
   amphora(p, 0xb5744a, 1.05, -0.3, 1);
   amphora(p, 0x9c5a3c, 0.82, -0.5, 0.85);
   // hanging coin sign
@@ -580,11 +811,14 @@ function shrine(p: Parts, s: Style, f: Faction) {
   } else if (f === 'greece') {
     colonnade(p, s, 2, -0.5, 0.5, 0.48, -0.35, 0.72, 0.07);
     p.box(s.wallDark, 1.3, 0.1, 0.5, 0, 1.24, -0.35);
-    p.prism(s.roof, 1.42, 0.32, 0.62, 0, 1.3, -0.35);
+    gabledRoof(p, s, 1.42, 0.32, 0.62, 0, 1.3, -0.35);
+    // votive garland strung between the columns
+    p.torus(PAL.olive, 0.34, 0.03, Math.PI, 0, 1.05, -0.28, { rz: Math.PI });
   } else {
     colonnade(p, s, 2, -0.42, 0.42, 0.48, -0.35, 0.68, 0.065);
     p.box(s.trim, 1.15, 0.1, 0.45, 0, 1.2, -0.35);
-    p.prism(s.roof, 1.25, 0.3, 0.55, 0, 1.26, -0.35);
+    gabledRoof(p, s, 1.25, 0.3, 0.55, 0, 1.26, -0.35);
+    p.torus(PAL.olive, 0.3, 0.028, Math.PI, 0, 1.02, -0.28, { rz: Math.PI });
     p.sphere(PAL.gold, 0.05, 0, 1.6, -0.35, { seg: 5 });
   }
 }
@@ -600,19 +834,24 @@ function temple(p: Parts, s: Style, f: Faction) {
       p.box(PAL.gold, 0.44, 0.06, 0.44, sx * 0.6, 1.62, 0.55, { ry: Math.PI / 4 });
     }
     p.box(s.wall, 0.8, 0.8, 0.4, 0, 0.72, 0.55);
-    doorway(p, 0x3a2c1c, 0.34, 0.5, 0, 0.32, 0.77);
+    doorway(p, 0x3a2c1c, 0.34, 0.5, 0, 0.32, 0.77, { frame: PAL.gold });
     p.box(s.wall, 1.5, 1.0, 1.0, 0, 0.82, -0.35);
+    win(p, s.wallDark, -0.78, 0.95, -0.35, { ry: -Math.PI / 2, w: 0.12, h: 0.16 });
+    win(p, s.wallDark, 0.78, 0.95, -0.35, { ry: Math.PI / 2, w: 0.12, h: 0.16 });
     p.box(s.wallDark, 1.6, 0.14, 1.1, 0, 1.39, -0.35);
     p.box(s.accent, 1.56, 0.08, 1.06, 0, 1.5, -0.35);
     p.cone(PAL.goldBright, 0.16, 0.3, 0, 1.7, -0.35, { seg: 4, ry: Math.PI / 4 });
+    steps(p, PAL.sandLight, 0.6, 0, 0, 0.95, { n: 2 });
   } else if (f === 'greece') {
     p.box(s.wallDark, 1.55, 0.12, 1.55, 0, 0.37, 0);
     colonnade(p, s, 3, -0.6, 0.6, 0.44, 0.62, 1.05, 0.075);
     colonnade(p, s, 3, -0.6, 0.6, 0.44, -0.62, 1.05, 0.075);
     p.box(s.wall, 0.95, 0.95, 0.95, 0, 0.9, 0);
     p.box(s.wallDark, 1.6, 0.14, 1.6, 0, 1.55, 0);
-    p.prism(s.roof, 1.75, 0.5, 1.75, 0, 1.62, 0);
+    gabledRoof(p, s, 1.75, 0.5, 1.75, 0, 1.62, 0);
     p.box(s.trim, 1.8, 0.07, 0.16, 0, 1.66, 0.82);
+    p.box(PAL.gold, 0.36, 0.16, 0.05, 0, 1.85, 0.83); // pediment relief
+    steps(p, s.wall, 0.8, 0, 0, 0.82, { n: 2 });
     p.sphere(PAL.gold, 0.07, 0, 2.16, 0, { seg: 5 });
   } else {
     // roman podium temple: high base, deep porch
@@ -620,8 +859,11 @@ function temple(p: Parts, s: Style, f: Faction) {
     for (let i = 0; i < 3; i++) p.box(s.wallDark, 1.2 - i * 0.15, 0.09, 0.2, 0, 0.2 + i * 0.09, 0.78 - i * 0.14);
     colonnade(p, s, 3, -0.5, 0.5, 0.51, 0.55, 0.95, 0.07);
     p.box(s.wall, 1.1, 0.9, 0.85, 0, 0.96, -0.25);
+    win(p, s.wallDark, -0.56, 1.05, -0.25, { ry: -Math.PI / 2, w: 0.12, h: 0.16 });
+    win(p, s.wallDark, 0.56, 1.05, -0.25, { ry: Math.PI / 2, w: 0.12, h: 0.16 });
     p.box(s.trim, 1.35, 0.12, 1.5, 0, 1.5, -0.05);
-    p.prism(s.roof, 1.45, 0.45, 1.65, 0, 1.58, -0.05);
+    gabledRoof(p, s, 1.45, 0.45, 1.65, 0, 1.58, -0.05);
+    p.box(PAL.gold, 0.32, 0.14, 0.05, 0, 1.76, 0.74); // pediment relief
     p.sphere(PAL.gold, 0.06, 0, 2.06, -0.05, { seg: 5 });
   }
   // votive braziers
@@ -653,10 +895,12 @@ function amphitheaterB(p: Parts, s: Style, f: Faction) {
       });
     }
     p.cyl(PAL.sandLight, 0.52, 0.52, 0.1, 0, 0.08, 0.35, { seg: 10, shade: 1.05 });
-    // skene backdrop
+    // skene backdrop with theater masks
     p.box(s.wall, 1.6, 0.6, 0.35, 0, 0.42, 1.0);
     colonnade(p, s, 3, -0.6, 0.6, 0.12, 0.78, 0.5, 0.05);
-    p.prism(s.roof, 1.75, 0.3, 0.5, 0, 0.72, 1.0);
+    gabledRoof(p, s, 1.75, 0.3, 0.5, 0, 0.72, 1.0);
+    p.sphere(PAL.white, 0.06, -0.35, 0.5, 0.81, { seg: 5, sy: 1.2 });
+    p.sphere(PAL.white, 0.06, 0.35, 0.5, 0.81, { seg: 5, sy: 1.2, shade: 0.92 });
   } else {
     // egyptian festival court: enclosure, masts and a dais
     p.box(s.wall, 2.5, 0.55, 0.16, 0, 0.4, -1.15);
@@ -688,10 +932,12 @@ function academy(p: Parts, s: Style, f: Faction) {
     p.box(s.wallDark, 2.0, 0.12, 1.4, 0, 1.15, -0.55);
     p.box(s.accent, 1.96, 0.07, 1.36, 0, 1.24, -0.55);
   } else {
-    p.prism(s.roof, 2.15, 0.6, 1.55, 0, 1.09, -0.55);
+    gabledRoof(p, s, 2.15, 0.6, 1.55, 0, 1.09, -0.55);
     p.box(s.trim, 2.2, 0.07, 0.16, 0, 1.13, 0.18);
   }
-  doorway(p, 0x37455e, 0.44, 0.62, 0, 0.16, 0.11);
+  doorway(p, 0x37455e, 0.44, 0.62, 0, 0.16, 0.11, { frame: s.wallDark });
+  win(p, s.wallDark, -0.7, 0.75, 0.1, { w: 0.14, h: 0.18 });
+  win(p, s.wallDark, 0.7, 0.75, 0.1, { w: 0.14, h: 0.18 });
   colonnade(p, s, 3, -0.75, 0.75, 0.15, 0.35, 0.8, 0.07);
   // front steps
   for (let i = 0; i < 3; i++) p.box(s.wallDark, 1.3 - i * 0.2, 0.07, 0.3, 0, 0.06 + i * 0.07, 0.95 - i * 0.18);
@@ -781,10 +1027,13 @@ function plazaB(p: Parts, s: Style, f: Faction) {
 
 function lighthouseB(p: Parts, s: Style, f: Faction) {
   p.box(PAL.sandLight, 1.85, 0.16, 1.85, 0, 0.08, 0);
-  // pharos tiers
+  // pharos tiers with masonry rings
   p.box(s.wallDark, 1.25, 0.55, 1.25, 0, 0.43, 0);
+  p.box(s.wall, 1.28, 0.07, 1.28, 0, 0.28, 0, { shade: 0.9 });
   p.box(s.trim, 1.32, 0.08, 1.32, 0, 0.74, 0);
   p.cyl(s.wall, 0.4, 0.52, 1.4, 0, 1.48, 0, { seg: 8 });
+  p.cyl(s.wallDark, 0.47, 0.49, 0.06, 0, 1.05, 0, { seg: 8, shade: 1.04 });
+  p.cyl(s.wallDark, 0.43, 0.45, 0.06, 0, 1.7, 0, { seg: 8, shade: 1.04 });
   p.cyl(s.wallDark, 0.28, 0.34, 0.75, 0, 2.55, 0, { seg: 8 });
   p.box(s.trim, 0.52, 0.08, 0.52, 0, 2.97, 0);
   for (const sx of [-1, 1]) {
@@ -811,11 +1060,13 @@ function forumB(p: Parts, s: Style, f: Faction) {
     p.box(s.accent, 2.16, 0.07, 1.26, 0, 1.3, -0.6);
     crenellations(p, s.wall, 2.1, 1.36, -1.1, 4);
   } else {
-    p.prism(s.roof, 2.35, 0.55, 1.45, 0, 1.28, -0.6);
+    gabledRoof(p, s, 2.35, 0.55, 1.45, 0, 1.28, -0.6);
     p.box(s.trim, 2.4, 0.07, 0.15, 0, 1.32, 0.1);
   }
+  win(p, s.wallDark, -0.75, 0.85, 0.02, { w: 0.13, h: 0.17 });
+  win(p, s.wallDark, 0.75, 0.85, 0.02, { w: 0.13, h: 0.17 });
   colonnade(p, s, 4, -0.85, 0.85, 0.15, 0.15, 0.9, 0.07);
-  doorway(p, 0x40302a, 0.5, 0.66, 0, 0.16, 0.01);
+  doorway(p, 0x40302a, 0.5, 0.66, 0, 0.16, 0.01, { frame: s.wallDark });
   // speaker's rostra
   p.box(s.wallDark, 0.9, 0.3, 0.55, 0, 0.29, 0.85);
   p.box(s.wall, 0.8, 0.08, 0.45, 0, 0.48, 0.85);
@@ -857,22 +1108,32 @@ function wonderB(p: Parts, s: Style, f: Faction) {
     colonnade(p, s, 2, 1.35, 1.35, 0.56, 0.33, 1.5, 0.1);
     p.box(s.wall, 2.1, 1.4, 1.5, 0, 1.2, 0);
     p.box(s.wallDark, 3.25, 0.2, 2.45, 0, 2.12, 0);
-    p.prism(s.roof, 3.5, 0.8, 2.7, 0, 2.28, 0);
+    gabledRoof(p, s, 3.5, 0.8, 2.7, 0, 2.28, 0);
     p.box(s.trim, 3.55, 0.1, 0.22, 0, 2.34, 1.3);
+    for (const ax of [-1.4, -0.7, 0.7, 1.4]) p.box(s.trim, 0.1, 0.11, 0.07, ax, 2.46, 1.34);
+    steps(p, s.wall, 1.6, 0, 0, 1.35);
     p.box(PAL.gold, 1.2, 0.35, 0.06, 0, 2.6, 1.18);
     p.sphere(PAL.gold, 0.1, 0, 3.14, 0, { seg: 6 });
     for (const sx of [-1, 1]) p.sphere(PAL.goldBright, 0.08, sx * 1.7, 2.42, 1.3, { seg: 5 });
   } else {
-    // the great dome
+    // the great dome, ribbed and ringed
     p.cyl(s.wall, 1.5, 1.6, 1.5, 0, 0.95, -0.3, { seg: 12 });
+    p.cyl(s.wallDark, 1.57, 1.59, 0.08, 0, 0.55, -0.3, { seg: 12, shade: 1.03 });
+    p.cyl(s.wallDark, 1.52, 1.54, 0.08, 0, 1.25, -0.3, { seg: 12, shade: 1.03 });
     p.box(s.trim, 3.2, 0.12, 0.2, 0, 1.72, -0.3, { ry: 0 });
     p.sphere(s.roof, 1.42, 0, 1.7, -0.3, { sy: 0.75, seg: 9 });
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      p.box(s.roof, 0.07, 0.5, 0.07, Math.cos(a) * 0.62, 2.38, -0.3 + Math.sin(a) * 0.62,
+        { ry: -a, rz: Math.cos(a) * 0.9, rx: -Math.sin(a) * 0.9, shade: 0.82 });
+    }
     p.cyl(s.trim, 0.28, 0.34, 0.25, 0, 2.75, -0.3, { seg: 8 });
     p.sphere(PAL.goldBright, 0.14, 0, 2.95, -0.3, { seg: 6 });
     // portico
     colonnade(p, s, 4, -0.95, 0.95, 0.3, 1.25, 1.15, 0.09);
     p.box(s.wallDark, 2.3, 0.18, 0.5, 0, 1.54, 1.25);
-    p.prism(s.roof, 2.5, 0.55, 0.7, 0, 1.62, 1.25);
+    gabledRoof(p, s, 2.5, 0.55, 0.7, 0, 1.62, 1.25);
+    p.box(PAL.gold, 0.44, 0.2, 0.05, 0, 1.85, 1.62); // pediment relief
     for (let i = 0; i < 3; i++) p.box(s.wallDark, 2.2 - i * 0.25, 0.08, 0.28, 0, 0.1 + i * 0.08, 1.85 - i * 0.2);
     p.box(PAL.gold, 1.4, 0.1, 0.06, 0, 1.5, 1.52);
   }
@@ -1017,6 +1278,8 @@ export function nodeGeo(kind: NodeKind, variant: number): THREE.BufferGeometry {
         p.sphere(0x54747e, 0.05, Math.cos(a) * 0.32 + 0.05, 0.03, Math.sin(a) * 0.32, { seg: 4, sy: 0.5 });
       }
       p.torus(0xbdeef0, 0.5, 0.018, Math.PI * 2, 0, 0.03, 0, { rx: Math.PI / 2 });
+    } else if (kind === 'carcass') {
+      wildsNode(p, kind, variant); // felled game, butchered for food
     }
   });
 }
@@ -1183,13 +1446,17 @@ export function unitGeo(type: UnitTypeId, faction: Faction): THREE.BufferGeometr
         p.box(PAL.woodLight, 0.2, 0.12, 0.2, 0.1, 0.32, 0.35, { ry: 0.4 });
         break;
       }
+      default:
+        wildsUnit(p, type); // animals, deserters, refugees
+        break;
     }
   }, type === 'chariot' ? g => { g.rotateY(Math.PI); g.computeBoundingSphere(); } : undefined);
 }
 
 export const UNIT_VIS_HEIGHT: Record<UnitTypeId, number> = {
   villager: 0.95, spearman: 1.0, archer: 1.0, chariot: 1.25, hoplite: 1.05, legionary: 1.0,
-  boat: 1.5, tradecart: 0.95
+  boat: 1.5, tradecart: 0.95,
+  gazelle: 0.8, boar: 0.75, wolf: 0.7, mercenary: 1.0, refugee: 0.95
 };
 
 // weapons: origin at grip, blade along +y
@@ -1259,10 +1526,13 @@ export function propGeo(kind: string, faction?: Faction): THREE.BufferGeometry {
       case 'rock':
         p.ico(PAL.rock, 0.14, 0, 0.06, 0, { shade: 0.95 });
         p.ico(PAL.stoneLight, 0.08, 0.12, 0.04, 0.06, { ry: 1 });
+        p.ico(PAL.rock, 0.06, -0.12, 0.03, -0.05, { ry: 2, shade: 0.85 });
         break;
       case 'bush':
         p.sphere(PAL.olive, 0.2, 0, 0.13, 0, { sy: 0.7 });
         p.sphere(PAL.oliveDark, 0.14, 0.1, 0.1, 0.08, { sy: 0.7 });
+        p.sphere(PAL.leaf, 0.1, -0.12, 0.11, -0.06, { sy: 0.7, shade: 1.06 });
+        p.sphere(0xd8687a, 0.025, 0.06, 0.24, 0.04, { seg: 4 });
         break;
       case 'shrub':
         p.sphere(0x8a9a52, 0.17, 0, 0.1, 0, { sy: 0.62 });
@@ -1310,8 +1580,12 @@ export function propGeo(kind: string, faction?: Faction): THREE.BufferGeometry {
         break;
       case 'cliff':
         p.cyl(0xbfae86, 0.62, 0.78, 0.85, 0, 0.42, 0, { seg: 6, ry: 0.4 });
+        p.cyl(0xa8976f, 0.72, 0.74, 0.09, 0, 0.28, 0, { seg: 6, ry: 0.4, shade: 0.95 }); // strata band
         p.cyl(0xcdbd96, 0.42, 0.56, 0.4, 0.06, 0.98, 0.04, { seg: 5, ry: 1.1 });
         p.ico(0xb2a179, 0.28, -0.5, 0.16, 0.38, { ry: 0.8 });
+        // scrub clinging to the ledges
+        p.sphere(PAL.olive, 0.1, 0.35, 1.2, 0.15, { sy: 0.55 });
+        p.sphere(PAL.oliveDark, 0.08, -0.45, 0.62, 0.42, { sy: 0.55 });
         break;
       case 'tent': {
         // striped market tent like the reference image
@@ -1322,40 +1596,76 @@ export function propGeo(kind: string, faction?: Faction): THREE.BufferGeometry {
         for (let i = 0; i < 5; i++) {
           p.box(i % 2 === 0 ? c1 : PAL.cloth, 0.26, 0.045, 1.1, -0.52 + i * 0.26, 0.78 + Math.abs(2 - i) * -0.02 + 0.04, 0, { rz: 0 });
         }
+        // scalloped valance along the front edge
+        for (let i = 0; i < 5; i++) {
+          const cc = i % 2 === 0 ? c1 : PAL.cloth;
+          p.box(cc, 0.22, 0.08, 0.03, -0.5 + i * 0.25, 0.72, 0.56);
+          p.cone(cc, 0.08, 0.08, -0.5 + i * 0.25, 0.65, 0.56, { seg: 4, rx: Math.PI, sz: 0.3 });
+        }
+        // gilded finials on the front posts
+        for (const sx of [-1, 1]) p.sphere(PAL.gold, 0.03, sx * 0.55, 0.77, 0.45, { seg: 4 });
         p.box(PAL.wood, 1.2, 0.08, 0.5, 0, 0.3, 0.15);
         p.sphere(0xd8b455, 0.08, -0.3, 0.42, 0.1, { seg: 5 });
         p.sphere(PAL.berry, 0.07, -0.1, 0.42, 0.2, { seg: 5 });
         p.sphere(0x8fa05a, 0.075, 0.15, 0.42, 0.08, { seg: 5 });
+        basket(p, 0.42, 0.42, 0.85);
         amphora(p, 0xb5744a, 0.75, 0.35, 0.9);
         break;
       }
       case 'well':
         p.cyl(PAL.stone, 0.32, 0.36, 0.4, 0, 0.2, 0, { seg: 8 });
+        p.cyl(PAL.stoneLight, 0.345, 0.355, 0.06, 0, 0.12, 0, { seg: 8, shade: 0.92 }); // masonry seam
+        p.cyl(PAL.stoneLight, 0.335, 0.34, 0.05, 0, 0.38, 0, { seg: 8, shade: 1.05 });  // rim cap
         p.cyl(0x27414a, 0.24, 0.24, 0.04, 0, 0.41, 0, { seg: 8 });
         for (const sx of [-1, 1]) p.cyl(PAL.woodDark, 0.03, 0.03, 0.6, sx * 0.28, 0.65, 0, { seg: 4 });
-        p.prism(PAL.wood, 0.85, 0.22, 0.5, 0, 0.92, 0);
+        // windlass with crank handle and hanging bucket
+        p.cyl(PAL.wood, 0.045, 0.045, 0.56, 0, 0.82, 0, { seg: 5, rz: Math.PI / 2 });
+        p.cyl(PAL.woodDark, 0.02, 0.02, 0.12, 0.31, 0.86, 0, { seg: 4 });
+        p.cyl(PAL.woodDark, 0.02, 0.02, 0.14, 0.36, 0.9, 0, { seg: 4, rz: Math.PI / 2 });
+        p.box(0xc9b184, 0.025, 0.24, 0.025, 0, 0.68, 0); // rope
+        p.cyl(0x8a6844, 0.055, 0.045, 0.09, 0, 0.55, 0, { seg: 6 });
+        gabledRoof(p, { roof: 0x8a6844 }, 0.85, 0.22, 0.5, 0, 0.92, 0);
         break;
       case 'sphinx':
         p.box(0xcaa96e, 0.5, 0.4, 1.0, 0, 0.4, 0);
-        p.box(0xcaa96e, 0.34, 0.2, 0.5, 0, 0.25, 0.55, { shade: 0.95 });
+        // forepaws
+        p.box(0xcaa96e, 0.14, 0.2, 0.5, -0.16, 0.25, 0.55, { shade: 0.95 });
+        p.box(0xcaa96e, 0.14, 0.2, 0.5, 0.16, 0.25, 0.55, { shade: 0.95 });
         p.box(0xd8bb80, 0.3, 0.38, 0.28, 0, 0.72, 0.35);
+        // striped nemes headdress
         p.box(st.accent, 0.36, 0.1, 0.3, 0, 0.9, 0.35);
+        p.box(PAL.gold, 0.38, 0.035, 0.31, 0, 0.84, 0.35);
+        p.box(0xd8bb80, 0.1, 0.3, 0.06, -0.18, 0.66, 0.42, { shade: 0.9 }); // side lappets
+        p.box(0xd8bb80, 0.1, 0.3, 0.06, 0.18, 0.66, 0.42, { shade: 0.9 });
         p.box(0xb59357, 0.7, 0.2, 1.2, 0, 0.1, 0);
+        p.box(0x8a6a40, 0.06, 0.06, 0.4, -0.28, 0.5, -0.35, { rx: 0.5 }); // tail
         break;
       case 'obelisk_s':
         p.box(PAL.sandLight, 0.5, 0.16, 0.5, 0, 0.08, 0);
+        p.box(0xcaa96e, 0.34, 0.1, 0.34, 0, 0.21, 0);
         p.cyl(0xd8bb80, 0.08, 0.14, 1.3, 0, 0.8, 0, { seg: 4, ry: Math.PI / 4 });
+        // carved hieroglyph band
+        for (let i = 0; i < 3; i++) p.box(0xb5945c, 0.035, 0.08, 0.02, 0, 0.55 + i * 0.17, 0.115 - i * 0.012);
         p.cone(PAL.gold, 0.14, 0.18, 0, 1.53, 0, { seg: 4, ry: Math.PI / 4 });
         break;
       case 'column_st':
         p.box(PAL.stoneLight, 0.4, 0.12, 0.4, 0, 0.06, 0);
         p.cyl(0xe8e0cd, 0.11, 0.12, 1.1, 0, 0.65, 0, { seg: 7 });
+        // fluting shadows + capital volutes
+        p.box(0xd6cdb4, 0.02, 1.0, 0.02, 0.1, 0.65, 0.045, { shade: 0.9 });
+        p.box(0xd6cdb4, 0.02, 1.0, 0.02, -0.06, 0.65, 0.1, { shade: 0.9 });
+        p.cyl(0xe8e0cd, 0.135, 0.115, 0.05, 0, 1.17, 0, { seg: 7, shade: 1.04 });
         p.box(0xe8e0cd, 0.32, 0.1, 0.32, 0, 1.25, 0);
+        for (const sx of [-1, 1]) p.cyl(0xded4bc, 0.05, 0.05, 0.06, sx * 0.15, 1.2, 0.14, { seg: 6, rz: Math.PI / 2 });
         break;
       case 'column_fallen':
         p.cyl(0xded4bc, 0.12, 0.12, 0.9, 0, 0.12, 0, { seg: 7, rz: Math.PI / 2, ry: 0.2 });
+        // drum seams on the fallen shaft
+        p.cyl(0xc6bb9e, 0.123, 0.123, 0.03, -0.22, 0.12, 0.045, { seg: 7, rz: Math.PI / 2, ry: 0.2 });
+        p.cyl(0xc6bb9e, 0.123, 0.123, 0.03, 0.2, 0.12, -0.04, { seg: 7, rz: Math.PI / 2, ry: 0.2 });
         p.cyl(0xd0c5a8, 0.12, 0.12, 0.35, 0.75, 0.12, 0.3, { seg: 7, rz: Math.PI / 2, ry: 0.9 });
         p.box(0xded4bc, 0.3, 0.1, 0.3, -0.7, 0.05, -0.2, { ry: 0.4 });
+        p.ico(0xc9bda0, 0.08, 0.4, 0.05, 0.5, { ry: 1.1 });
         break;
       case 'urn':
         amphora(p, 0xa8683c, 0, 0, 1.4);
@@ -1373,22 +1683,45 @@ export function propGeo(kind: string, faction?: Faction): THREE.BufferGeometry {
       case 'milestone':
         p.cyl(0xd0c5a8, 0.12, 0.15, 0.6, 0, 0.3, 0, { seg: 6 });
         p.box(0xb8ab8c, 0.16, 0.1, 0.03, 0, 0.4, 0.13);
+        // carved inscription lines
+        p.box(0xa89b7c, 0.1, 0.02, 0.035, 0, 0.42, 0.13);
+        p.box(0xa89b7c, 0.08, 0.02, 0.035, 0, 0.38, 0.13);
         break;
       case 'ruins':
         p.box(0xd5cab0, 1.2, 0.5, 0.25, 0, 0.25, -0.4, { ry: 0.15, shade: 0.95 });
+        // crumbled top course + broken pediment fragment leaning on it
+        p.box(0xc9bda0, 0.4, 0.14, 0.26, 0.25, 0.55, -0.36, { ry: 0.15, shade: 0.9 });
+        p.prism(0xd5cab0, 0.55, 0.22, 0.12, 0.2, 0.02, 0.15, { ry: 0.9, rz: 0.25, shade: 0.92 });
         p.box(0xc9bda0, 0.6, 0.8, 0.25, -0.5, 0.4, -0.35, { ry: 0.15 });
+        p.box(0x8a7f6a, 0.2, 0.3, 0.05, -0.5, 0.42, -0.22, { ry: 0.15, shade: 0.8 }); // empty niche
         p.cyl(0xded4bc, 0.11, 0.12, 0.6, 0.5, 0.3, 0.3, { seg: 7 });
+        p.cyl(0xc6bb9e, 0.123, 0.123, 0.025, 0.5, 0.42, 0.3, { seg: 7 });
         p.cyl(0xd0c5a8, 0.11, 0.12, 0.35, -0.3, 0.17, 0.5, { seg: 7 });
         p.ico(0xc9bda0, 0.15, 0.1, 0.08, 0.15, { ry: 0.8 });
         p.ico(0xd5cab0, 0.1, 0.85, 0.06, -0.1, { ry: 0.3 });
+        p.ico(0xbfb49a, 0.07, -0.15, 0.05, -0.75, { ry: 1.4 });
+        // reclaiming vegetation
+        p.sphere(PAL.olive, 0.12, -0.75, 0.08, 0.2, { sy: 0.6 });
+        p.sphere(PAL.oliveDark, 0.08, 0.7, 0.06, 0.55, { sy: 0.6 });
         break;
       case 'decoboat':
         p.box(PAL.wood, 0.6, 0.26, 1.5, 0, 0.2, 0);
+        p.box(PAL.woodDark, 0.64, 0.06, 1.54, 0, 0.32, 0, { shade: 1.08 }); // gunwale rail
         p.cone(PAL.woodDark, 0.24, 0.6, 0, 0.34, 0.95, { seg: 4, rx: 1.3 });
+        p.sphere(PAL.gold, 0.05, 0, 0.52, 1.12, { seg: 4 }); // prow ornament
         p.cone(PAL.woodDark, 0.24, 0.5, 0, 0.32, -0.9, { seg: 4, rx: -1.4 });
         p.cyl(PAL.woodDark, 0.04, 0.05, 1.4, 0, 1.0, 0, { seg: 5 });
+        p.cyl(PAL.woodDark, 0.025, 0.025, 0.95, 0, 1.62, 0, { seg: 4, rx: Math.PI / 2 }); // yard
         p.box(PAL.cloth, 0.9, 0.85, 0.035, 0, 1.15, 0.05, { shade: 1.05 });
         p.box(0xb03a2e, 0.9, 0.12, 0.04, 0, 1.15, 0.05);
+        // oars resting along the sides
+        for (const sx of [-1, 1]) {
+          p.cyl(PAL.woodDark, 0.018, 0.018, 0.85, sx * 0.34, 0.35, -0.2, { seg: 4, rx: 1.2, ry: sx * 0.2 });
+          p.box(PAL.wood, 0.05, 0.16, 0.02, sx * 0.34, 0.16, 0.22, { rx: 0.4 });
+        }
+        // cargo under the mast
+        p.box(PAL.woodLight, 0.18, 0.12, 0.18, 0.12, 0.38, -0.35, { ry: 0.4 });
+        amphora(p, 0xb5744a, -0.14, 0.33, 0.75);
         break;
       case 'tradepost': {
         // neutral caravanserai at the crossroads of the map

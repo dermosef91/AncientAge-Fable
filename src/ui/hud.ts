@@ -1,8 +1,8 @@
 // HUD: resource bar, age chip, objectives, selection panel with unit stats,
 // context actions, the build menu, toasts and the pause menu.
 import {
-  AGES, BUILD_MENU, BUILD_MENU_WIDE, BUILDINGS, MARKET_BUY_GOLD, MARKET_LOT,
-  MARKET_SELL_GOLD, MAX_AGE, RES_ORDER, TECHS, trainableAt, UNITS, type Cost
+  AGES, BOONS, BUILD_MENU, BUILD_MENU_WIDE, BUILDINGS, ENC, MARKET_BUY_GOLD, MARKET_LOT,
+  MARKET_SELL_GOLD, MAX_AGE, RES_ORDER, TECHS, trainableAt, UNITS, WILDS, type Cost
 } from '../core/config';
 import type { Building, BuildingTypeId, ResType, SimEvent, UnitTypeId } from '../core/types';
 import { RES_OF_NODE } from '../core/types';
@@ -50,6 +50,9 @@ export class HUD {
   private toastsEl!: HTMLElement;
   private ageChip!: HTMLElement;
   private wonderBanner!: HTMLElement;
+  private boonsEl!: HTMLElement;
+  private offerEl!: HTMLElement;
+  private offerSig = '';
   private idleBtn!: HTMLElement;
   private sideRail!: HTMLElement;
   private menuModal: HTMLElement | null = null;
@@ -121,6 +124,10 @@ export class HUD {
 
     // ---- wonder countdown banner
     this.wonderBanner = this.el('div', 'wonder-banner', this.root);
+
+    // ---- encounter UI: active boons + the deserters' offer
+    this.boonsEl = this.el('div', 'boons', this.root);
+    this.offerEl = this.el('div', 'offer-banner', this.root);
 
     // ---- right rail
     const side = this.el('div', 'side-right', this.root);
@@ -336,13 +343,14 @@ export class HUD {
       const u = units[0]!;
       const def = UNITS[u.type];
       const s = w.unitStats(u.owner, u.type);
-      const enemy = u.owner !== 0;
+      const tag = u.owner === WILDS ? ' <span class="foe wild">wilds</span>'
+        : u.owner !== 0 ? ' <span class="foe">enemy</span>' : '';
       const carryTxt = u.carryAmt > 0.5 && u.carryKind
         ? `<span class="carry">${icon(RES_OF_NODE[u.carryKind], 12)}${Math.floor(u.carryAmt)}</span>` : '';
-      const status = u.hold ? 'Holding' : taskLabel(u.task.type);
+      const status = u.relic ? 'Carrying the Idol' : u.hold ? 'Holding' : taskLabel(u.task.type);
       html += `<div class="portrait">${thumbImg(unitThumb(u.type, w.players[u.owner].faction), 'pthumb')}</div>
         <div class="info">
-          <div class="name">${def.name}${enemy ? ' <span class="foe">enemy</span>' : ''}
+          <div class="name">${def.name}${tag}
             <span class="status">${status}</span></div>
           <div class="statrow">
             <span title="Attack">ATK <b>${s.atk.toFixed(0)}</b></span>
@@ -357,13 +365,15 @@ export class HUD {
     } else if (bld) {
       const def = BUILDINGS[bld.type];
       const enemy = bld.owner !== 0;
+      const tag = bld.owner === WILDS ? ' <span class="foe wild">wilds</span>'
+        : enemy ? ' <span class="foe">enemy</span>' : '';
       let sub = def.desc;
       if (!bld.built) sub = `Under construction — <span data-prog>${Math.floor(bld.progress * 100)}%</span>`;
       else if (def.farm) sub = bld.withered ? 'Withered — needs wood to reseed' : `${Math.floor(bld.farmFood)} food remaining`;
       else if (def.trains && !enemy) sub = 'Tap the ground to set a rally point';
       html += `<div class="portrait">${thumbImg(buildingThumb(bld.type, w.players[bld.owner].faction, w.players[bld.owner].age), 'pthumb')}</div>
         <div class="info">
-          <div class="name">${def.name}${enemy ? ' <span class="foe">enemy</span>' : ''}</div>
+          <div class="name">${def.name}${tag}</div>
           <div class="sub">${sub}</div>
           <div class="hpbar"><div data-hp style="width:${(bld.hp / bld.maxHp) * 100}%"></div>
             <span class="hptext" data-hptext>${Math.ceil(bld.hp)}/${bld.maxHp}</span></div>
@@ -372,7 +382,7 @@ export class HUD {
     } else if (node) {
       const names: Record<string, string> = {
         tree: 'Woodland', berries: 'Berry Bush', stone: 'Stone Deposit',
-        gold: 'Gold Deposit', fish: 'Fish Shoal'
+        gold: 'Gold Deposit', fish: 'Fish Shoal', carcass: 'Fresh Kill'
       };
       const res = RES_OF_NODE[node.kind];
       html += `<div class="portrait res">${icon(res, 30)}</div>
@@ -415,7 +425,7 @@ export class HUD {
       hpEl.parentElement!.classList.toggle('low', pct < 30);
       if (hpText) hpText.textContent = `${Math.ceil(u.hp)}/${u.maxHp}`;
       const st = this.selpanel.querySelector('.status');
-      if (st) st.textContent = u.hold ? 'Holding' : taskLabel(u.task.type);
+      if (st) st.textContent = u.relic ? 'Carrying the Idol' : u.hold ? 'Holding' : taskLabel(u.task.type);
     }
     if (b && hpEl) {
       hpEl.style.width = (b.hp / b.maxHp) * 100 + '%';
@@ -688,6 +698,59 @@ export class HUD {
     });
   }
 
+  // ---------------- encounters ----------------
+  /** Chips for active boons under the resource bar, with countdowns. */
+  private updateBoons() {
+    const w = this.world;
+    const boons = w.players[0].boons;
+    let html = '';
+    for (const id in boons) {
+      if (boons[id] <= w.time) continue;
+      const def = BOONS[id];
+      const left = boons[id] === Infinity ? '' : `<i>${fmtTime(boons[id] - w.time)}</i>`;
+      html += `<span class="boon-chip" title="${def.desc}">${icon('check', 12)}${def.name}${left}</span>`;
+    }
+    if (this.boonsEl.innerHTML !== html) this.boonsEl.innerHTML = html;
+  }
+
+  /** The deserters' offer: shown while your units stand at an unprovoked camp. */
+  private updateOffer() {
+    const w = this.world;
+    let offer: { siteId: number; count: number } | null = null;
+    for (const site of w.sites) {
+      if (site.kind !== 'camp' || site.state === 'cleared' || site.provokedBy === 0) continue;
+      if (site.unitIds.length === 0) continue;
+      let near = false;
+      for (const u of w.units.values()) {
+        if (u.owner === 0 && !u.water &&
+            (u.x - site.x) ** 2 + (u.z - site.z) ** 2 < (ENC.offerR + 1) ** 2) { near = true; break; }
+      }
+      if (near) { offer = { siteId: site.id, count: site.unitIds.length }; break; }
+    }
+    const afford = w.players[0].res.gold >= ENC.mercPrice;
+    const sig = offer ? `${offer.siteId}|${offer.count}|${afford}` : '';
+    if (sig === this.offerSig) return;
+    this.offerSig = sig;
+    if (!offer) {
+      this.offerEl.classList.remove('visible');
+      return;
+    }
+    this.offerEl.classList.add('visible');
+    this.offerEl.innerHTML =
+      `<span>${icon('gold', 15)} Deserters offer their spears</span>
+       <button class="hire" ${afford ? '' : 'disabled'}>
+         Hire ${offer.count} — ${ENC.mercPrice} gold</button>`;
+    const siteId = offer.siteId;
+    (this.offerEl.querySelector('.hire') as HTMLButtonElement).onclick = () => {
+      if (this.world.hireMercs(siteId)) {
+        this.sound.research();
+      } else {
+        this.sound.error();
+      }
+      this.offerSig = '';
+    };
+  }
+
   // ---------------- toasts + events ----------------
   toast(msg: string, kind: 'warn' | 'good' | '' = '') {
     const t = document.createElement('div');
@@ -748,6 +811,22 @@ export class HUD {
           break;
         case 'ping':
           this.minimap().ping(e.x, e.z, e.color);
+          break;
+        case 'siteDiscovered': {
+          const msg: Record<string, string> = {
+            herd: e.variant === 1 ? 'Wild boar root in the thickets' : 'A herd of gazelle grazes nearby',
+            den: 'A wolf den — its pack hunts these lands',
+            camp: 'Deserters are camped here — swords for hire',
+            cache: 'An old cairn — a villager could dig beneath it',
+            refugees: 'Refugees hide here — lead them to your Town Center',
+            relic: 'The Golden Idol! Carry it home to your Town Center'
+          };
+          this.toast(msg[e.kind], e.kind === 'den' ? 'warn' : 'good');
+          this.minimap().ping(e.x, e.z, '#f0c05a');
+          break;
+        }
+        case 'relic':
+          if (e.phase === 'dropped') this.minimap().ping(e.x, e.z, '#f0c05a');
           break;
       }
     }
@@ -833,6 +912,8 @@ export class HUD {
     this.wonderBanner.innerHTML = wb;
     this.wonderBanner.classList.toggle('visible', wb !== '');
 
+    this.updateBoons();
+    this.updateOffer();
     this.updateObjectives();
     this.renderPanel();
     this.renderActions();

@@ -5,20 +5,44 @@ export type ResType = 'food' | 'wood' | 'stone' | 'gold';
 export type UnitTypeId =
   | 'villager' | 'spearman' | 'archer'
   | 'chariot' | 'hoplite' | 'legionary'
-  | 'boat' | 'tradecart';
+  | 'boat' | 'tradecart'
+  // the wilds (owner 2)
+  | 'gazelle' | 'boar' | 'wolf' | 'mercenary' | 'refugee';
 export type BuildingTypeId =
   | 'towncenter' | 'house' | 'farm' | 'storehouse' | 'barracks'
   | 'range' | 'tower' | 'wall' | 'monument' | 'dock'
   | 'market' | 'shrine' | 'temple' | 'amphitheater' | 'academy'
-  | 'statue' | 'garden' | 'plaza' | 'lighthouse' | 'forum' | 'wonder';
-export type NodeKind = 'tree' | 'berries' | 'stone' | 'gold' | 'fish';
+  | 'statue' | 'garden' | 'plaza' | 'lighthouse' | 'forum' | 'wonder'
+  // encounter props (owner 2)
+  | 'den' | 'camp' | 'cairn' | 'pedestal';
+export type NodeKind = 'tree' | 'berries' | 'stone' | 'gold' | 'fish' | 'carcass';
 export type Difficulty = 'easy' | 'normal' | 'hard';
 
 export interface Vec2 { x: number; z: number }
 
 export const RES_OF_NODE: Record<NodeKind, ResType> = {
-  tree: 'wood', berries: 'food', stone: 'stone', gold: 'gold', fish: 'food'
+  tree: 'wood', berries: 'food', stone: 'stone', gold: 'gold', fish: 'food', carcass: 'food'
 };
+
+// ---------- Encounters ----------
+export type EncounterKind = 'herd' | 'den' | 'camp' | 'cache' | 'refugees' | 'relic';
+export type SiteState = 'dormant' | 'active' | 'cleared';
+
+/** One point of interest in the wilds, placed at map gen. */
+export interface EncounterSite {
+  id: number;
+  kind: EncounterKind;
+  x: number; z: number;
+  state: SiteState;
+  discovered: boolean;   // revealed by the player's fog
+  offered: boolean;      // one-shot prompt (merc offer / dig start) fired
+  unitIds: number[];     // wilds units bound to this site
+  buildingId: number;    // den/camp/cairn/pedestal building, 0 = none
+  carrierId: number;     // relic: unit carrying the idol, 0 = none
+  provokedBy: number;    // camp/den: owner that drew blood, -1 = neutral
+  timer: number;         // raid countdown / dig progress / settled count
+  variant: number;       // herd species, cache payload
+}
 
 // ---------- Tasks ----------
 export type Task =
@@ -60,6 +84,7 @@ export interface Unit {
   stuckT: number;
   hold: boolean;            // hold position: fight in place, never chase
   post: Vec2 | null;        // leash anchor while auto-engaging
+  relic?: boolean;          // carrying the Golden Idol
 }
 
 export interface QueueItem {
@@ -135,7 +160,10 @@ export type SimEvent =
   | { t: 'gatherTick'; nodeId: number; kind: NodeKind; x: number; z: number }
   | { t: 'nodeDepleted'; nodeId: number; kind: NodeKind; x: number; z: number }
   | { t: 'underattack'; owner: number; x: number; z: number }
-  | { t: 'toast'; owner: number; msg: string; kind?: 'warn' | 'good' }
+  | { t: 'toast'; owner: number; msg: string; kind?: 'warn' | 'good' | '' }
+  | { t: 'siteDiscovered'; kind: EncounterKind; x: number; z: number; variant: number }
+  | { t: 'siteCleared'; kind: EncounterKind; x: number; z: number; owner: number }
+  | { t: 'relic'; phase: 'taken' | 'dropped' | 'home'; x: number; z: number }
   | { t: 'ping'; x: number; z: number; color: string }
   | { t: 'place'; owner: number; x: number; z: number }
   | { t: 'farmReseed'; owner: number; id: number }
@@ -168,4 +196,6 @@ export interface PlayerState {
   /** Labor pool (forum): auto-assign idle villagers by these weights. */
   laborOn: boolean;
   laborWeights: Record<ResType, number>;
+  /** Encounter boons: id -> expiry in world time (Infinity = permanent). */
+  boons: Record<string, number>;
 }

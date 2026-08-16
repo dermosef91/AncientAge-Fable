@@ -6,7 +6,7 @@ import type { Building, BuildingTypeId, NodeKind, ResourceNode, SimEvent, Unit }
 import { clamp, lerp } from '../core/utils';
 import { heightAt, WATER_Y } from '../sim/map';
 import type { World } from '../sim/world';
-import { assets, instantiateCharacter, VILLAGER_CLIPS } from './assets';
+import { assets, instantiateCharacter, VILLAGER_CLIPS, type CharAsset } from './assets';
 import { arrowGeo, Flags, Markers, Particles } from './effects';
 import {
   BUILDING_VIS_HEIGHT, buildingGeo, carryGeo, cropGeo, nodeGeo, rubbleGeo,
@@ -33,6 +33,7 @@ interface UnitView {
   actions: Map<string, THREE.AnimationAction> | null;
   clip: string;
   mats: THREE.MeshStandardMaterial[];
+  modelScale: number;             // uniform scale of the rigged model (1 = procedural)
 }
 
 interface BuildingView {
@@ -113,7 +114,7 @@ export class GameView {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.12;
     this.scene.background = new THREE.Color(0x9fc9ce);
-    this.scene.fog = new THREE.Fog(0xc3d8cf, 85, 190);
+    this.scene.fog = new THREE.Fog(0xc3d8cf, 110, 235);
 
     this.camera = new THREE.PerspectiveCamera(38, 1, 1, 260);
     this.onResize();
@@ -467,7 +468,7 @@ export class GameView {
         v.carry = new THREE.Mesh(carryGeo(u.carryKind!), MAT.main);
         if (v.mixer) {
           // parented to a hand bone, so undo the model's scale
-          const inv = 1 / (assets.greekVillager?.scale ?? 1);
+          const inv = 1 / (v.modelScale || 1);
           v.carry.scale.setScalar(inv * 0.9);
           v.carry.position.set(0, 0.04 * inv, 0.06 * inv);
         } else {
@@ -506,10 +507,13 @@ export class GameView {
     const w = this.world;
     const faction = w.players[u.owner].faction;
 
-    // Greek villagers use the sculpted, animated model when it has loaded.
-    if (u.type === 'villager' && faction === 'greece' && assets.greekVillager) {
-      return this.createRiggedVillager(u);
-    }
+    // Villagers use their civilization's sculpted, animated model once loaded;
+    // the wilds' refugees and deserters share the rig with neutral characters.
+    const rigged =
+      u.type === 'villager' ? assets.villagers[faction] :
+      u.type === 'refugee' ? assets.wilds.woman :
+      u.type === 'mercenary' ? assets.wilds.bandit : null;
+    if (rigged) return this.createRiggedVillager(u, rigged);
 
     const group = new THREE.Group();
     const body = new THREE.Mesh(unitGeo(u.type, faction), MAT.main);
@@ -531,12 +535,11 @@ export class GameView {
     return {
       group, body, weapon, carry: null, carryKind: null, carryAnchor: group,
       flashing: false, dying: -1, type: u.type, water: u.water,
-      mixer: null, actions: null, clip: '', mats: []
+      mixer: null, actions: null, clip: '', mats: [], modelScale: 1
     };
   }
 
-  private createRiggedVillager(u: Unit): UnitView {
-    const asset = assets.greekVillager!;
+  private createRiggedVillager(u: Unit, asset: CharAsset): UnitView {
     const { root, mixer, bones } = instantiateCharacter(asset);
 
     // Own the materials so a damage flash affects only this villager.
@@ -584,7 +587,8 @@ export class GameView {
       mixer,
       actions,
       clip: VILLAGER_CLIPS.idle,
-      mats
+      mats,
+      modelScale: asset.scale
     };
   }
 

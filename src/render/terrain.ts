@@ -11,9 +11,10 @@ import { assets } from './assets';
 import { propGeo, stumpGeo, treeGeo, TREE_VARIANTS } from './models';
 
 const C = {
-  deep: new THREE.Color(0x1f7d92),
-  shallow: new THREE.Color(0x62cdd0),
+  deep: new THREE.Color(0x1c7fa0),
+  shallow: new THREE.Color(0x6fd8dc),
   wetSand: new THREE.Color(0xc0a066),
+  bottomShallow: new THREE.Color(0xc9b483),
   sand: new THREE.Color(0xdaba7e),
   sandLight: new THREE.Color(0xe8d49c),
   grass: new THREE.Color(0x8aa04a),
@@ -23,12 +24,15 @@ const C = {
   dirt: new THREE.Color(0xb8945e),
   rockLow: new THREE.Color(0xb5a072),
   rockHigh: new THREE.Color(0xc9b98e),
-  underwater: new THREE.Color(0x4fae9e),
+  underwater: new THREE.Color(0x59bfb0),
   // faction homelands
   homeEgypt: new THREE.Color(0xe0c793),
   homeGreece: new THREE.Color(0x9fae66),
   homeRome: new THREE.Color(0xb6ab72)
 };
+
+/** Elevation of the visible water surface (the plane laps onto the beach). */
+const SURF_Y = WATER_Y + 0.16;
 
 /** Prop kinds cheap enough to draw as instanced batches. */
 const SCATTER_KINDS = [
@@ -79,7 +83,7 @@ export class TerrainView {
     this.fogTex.magFilter = THREE.LinearFilter;
     this.fogTex.minFilter = THREE.LinearFilter;
     const fogMat = new THREE.MeshBasicMaterial({
-      map: this.fogTex, transparent: true, depthWrite: false, color: 0x0a0a12
+      map: this.fogTex, transparent: true, depthWrite: false
     });
     const fogGeo = new THREE.PlaneGeometry(MAP_W, MAP_H);
     this.fogMesh = new THREE.Mesh(fogGeo, fogMat);
@@ -140,10 +144,15 @@ export class TerrainView {
         // color by height + noise
         const n = noise(x * 0.09, z * 0.09);
         const n2 = noiseB(x * 0.23, z * 0.23);
-        if (h < WATER_Y - 0.03) {
-          col.copy(C.underwater).lerp(C.deep, clamp((WATER_Y - h) * 0.8, 0, 1));
-        } else if (h < -0.12) {
-          col.copy(C.wetSand).lerp(C.sand, clamp((h + 0.26) * 5, 0, 1));
+        if (h < SURF_Y - 0.03) {
+          // submerged: sandy bottom shows through the shallows, then teal
+          const d = SURF_Y - h;
+          col.copy(C.wetSand).lerp(C.bottomShallow, clamp(d * 4, 0, 1));
+          col.lerp(C.underwater, clamp((d - 0.12) * 2.6, 0, 1));
+          col.lerp(C.deep, clamp((d - 0.5) * 1.6, 0, 1));
+        } else if (h < -0.1) {
+          // narrow wet strip right above the waterline
+          col.copy(C.wetSand).lerp(C.sand, clamp((h - SURF_Y) * 12, 0, 1));
         } else if (h > 0.75) {
           col.copy(C.rockLow).lerp(C.rockHigh, clamp((h - 0.75) / 1.4, 0, 1));
           if (n2 > 0.2) col.lerp(C.dryGrass, 0.2);
@@ -203,63 +212,140 @@ export class TerrainView {
   // ---------------- water ----------------
   private buildWater(): { mesh: THREE.Mesh; mat: THREE.ShaderMaterial } {
     const w = this.world;
-    const seg = 64;
+    const seg = 96;
     const geo = new THREE.PlaneGeometry(MAP_W + 24, MAP_H + 24, seg, seg);
     geo.rotateX(-Math.PI / 2);
     geo.translate(MAP_W / 2 - 6, 0, MAP_H / 2 - 6);
-    // shore attribute: 1 near land, 0 deep
-    const pos = geo.getAttribute('position');
-    const shore = new Float32Array(pos.count);
-    for (let i = 0; i < pos.count; i++) {
-      const x = pos.getX(i), z = pos.getZ(i);
-      const h = (x >= 0 && z >= 0 && x < MAP_W && z < MAP_H) ? heightAt(w, x, z) : -1.4;
-      shore[i] = clamp(1 - (WATER_Y - h) * 1.5, 0, 1);
+
+    // Per-pixel shore field sampled from the height grid, so foam hugs the
+    // actual coast instead of the coarse water-plane vertices.
+    //   R: shallowness by depth (drives the color gradient)
+    //   G: distance to the coastline (drives foam, constant width on any slope)
+    const W1 = MAP_W + 1, H1 = MAP_H + 1;
+    const dist = new Float32Array(W1 * H1);
+    for (let i = 0; i < W1 * H1; i++) dist[i] = w.height[i] >= SURF_Y ? 0 : 1e9;
+    // two-pass chamfer distance transform across the water
+    const D2 = Math.SQRT2;
+    for (let z = 0; z < H1; z++) {
+      for (let x = 0; x < W1; x++) {
+        const i = z * W1 + x;
+        if (x > 0) dist[i] = Math.min(dist[i], dist[i - 1] + 1);
+        if (z > 0) {
+          dist[i] = Math.min(dist[i], dist[i - W1] + 1);
+          if (x > 0) dist[i] = Math.min(dist[i], dist[i - W1 - 1] + D2);
+          if (x < W1 - 1) dist[i] = Math.min(dist[i], dist[i - W1 + 1] + D2);
+        }
+      }
     }
-    geo.setAttribute('shore', new THREE.BufferAttribute(shore, 1));
+    for (let z = H1 - 1; z >= 0; z--) {
+      for (let x = W1 - 1; x >= 0; x--) {
+        const i = z * W1 + x;
+        if (x < W1 - 1) dist[i] = Math.min(dist[i], dist[i + 1] + 1);
+        if (z < H1 - 1) {
+          dist[i] = Math.min(dist[i], dist[i + W1] + 1);
+          if (x < W1 - 1) dist[i] = Math.min(dist[i], dist[i + W1 + 1] + D2);
+          if (x > 0) dist[i] = Math.min(dist[i], dist[i + W1 - 1] + D2);
+        }
+      }
+    }
+    const texData = new Uint8Array(W1 * H1 * 4);
+    for (let i = 0; i < W1 * H1; i++) {
+      texData[i * 4] = Math.round(clamp(1 - (SURF_Y - w.height[i]) * 1.6, 0, 1) * 255);
+      texData[i * 4 + 1] = Math.round(clamp(dist[i] / 24, 0, 1) * 255);
+      texData[i * 4 + 3] = 255;
+    }
+    const shoreTex = new THREE.DataTexture(texData, W1, H1, THREE.RGBAFormat);
+    shoreTex.magFilter = THREE.LinearFilter;
+    shoreTex.minFilter = THREE.LinearFilter;
+    shoreTex.needsUpdate = true;
 
     const mat = new THREE.ShaderMaterial({
       transparent: true,
       depthWrite: false,
       uniforms: {
         uTime: { value: 0 },
-        uDeep: { value: new THREE.Color(0x2394ab) },
-        uShallow: { value: new THREE.Color(0x6fd6d5) },
-        uFoam: { value: new THREE.Color(0xeafdfc) }
+        uShoreTex: { value: shoreTex },
+        uDeep: { value: new THREE.Color(0x1f8db2) },
+        uMid: { value: new THREE.Color(0x3ab7c6) },
+        uShallow: { value: new THREE.Color(0x62d7d8) },
+        uFoam: { value: new THREE.Color(0xf4fffd) }
       },
       vertexShader: `
-        attribute float shore;
-        varying float vShore;
         varying vec3 vPos;
+        varying vec2 vShoreUv;
         uniform float uTime;
         void main() {
-          vShore = shore;
+          vShoreUv = (position.xz + 0.5) / vec2(${W1}.0, ${H1}.0);
           vec3 p = position;
-          p.y += sin(uTime * 1.4 + position.x * 0.7 + position.z * 0.53) * 0.035 * (1.0 - shore * 0.6);
-          p.y += cos(uTime * 0.9 + position.z * 0.9) * 0.02;
+          // barely-there swell: large amplitude would slide the waterline
+          // across flat shelves and detach the foam collar from the coast
+          p.y += sin(uTime * 1.1 + position.x * 0.4 + position.z * 0.31) * 0.008;
           vPos = p;
           gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
         }`,
       fragmentShader: `
-        varying float vShore;
         varying vec3 vPos;
+        varying vec2 vShoreUv;
         uniform float uTime;
+        uniform sampler2D uShoreTex;
         uniform vec3 uDeep;
+        uniform vec3 uMid;
         uniform vec3 uShallow;
         uniform vec3 uFoam;
+
+        float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+        float noise(vec2 p) {
+          vec2 i = floor(p), f = fract(p);
+          vec2 u = f * f * (3.0 - 2.0 * f);
+          return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),
+                     mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
+        }
+
         void main() {
-          vec3 col = mix(uDeep, uShallow, vShore * vShore * 0.9 + vShore * 0.1);
-          float ripple = sin(vPos.x * 2.6 - uTime * 1.6) * sin(vPos.z * 2.2 + uTime * 1.3);
-          col += ripple * 0.03;
-          float sparkle = smoothstep(0.985, 1.0, sin(vPos.x * 4.1 + uTime * 0.8) * sin(vPos.z * 3.6 - uTime * 0.9) * sin(vPos.x * 1.3 - vPos.z * 1.1 + uTime * 0.4));
-          col += sparkle * 0.12;
-          float foamBand = smoothstep(0.68, 0.92, vShore + sin(uTime * 1.7 + vPos.x * 2.7 + vPos.z * 2.2) * 0.05);
-          col = mix(col, uFoam, foamBand * 0.8);
-          float alpha = mix(0.96, 0.62, vShore);
+          vec2 field = texture2D(uShoreTex, vShoreUv).rg;
+          float shore = field.r;             // 1 at the waterline, 0 deep
+          float coastDist = field.g * 24.0;  // world units to the nearest land
+          float n = noise(vPos.xz * 0.9 + uTime * 0.1);
+          float n2 = noise(vPos.xz * 2.4 - uTime * 0.15);
+
+          // depth gradient: rich deep -> mid teal -> bright turquoise shallows
+          vec3 col = mix(uDeep, uMid, smoothstep(0.0, 0.5, shore));
+          col = mix(col, uShallow, smoothstep(0.45, 0.9, shore));
+
+          // large-scale tonal variation so open water is not flat
+          col *= 0.96 + 0.08 * noise(vPos.xz * 0.16 + vec2(uTime * 0.03, -uTime * 0.02));
+
+          // broad, soft swell shading (kept low-frequency to avoid moire)
+          float ripple = sin(vPos.x * 0.9 - uTime * 1.1) * sin(vPos.z * 0.75 + uTime * 0.9);
+          col += ripple * 0.015;
+          // glints, gated by noise so they scatter instead of forming a lattice
+          float glint = smoothstep(0.985, 1.0, sin(vPos.x * 4.1 + uTime * 0.8) * sin(vPos.z * 3.6 - uTime * 0.9) * sin(vPos.x * 1.3 - vPos.z * 1.1 + uTime * 0.4));
+          col += glint * 0.12 * smoothstep(0.5, 0.75, n2) * (1.0 - shore * 0.5);
+
+          // surf: thin crisp foam arcs rolling in, separated from the collar
+          // by a clear turquoise gap
+          float surfWin = smoothstep(2.2, 3.4, coastDist) * (1.0 - smoothstep(4.5, 11.0, coastDist));
+          float band = sin(coastDist * 1.35 + uTime * 1.7 + n * 1.6);
+          float crest = smoothstep(0.85, 0.95, band) * surfWin * (0.5 + 0.5 * n2);
+
+          // faint speckled wash inside the shelf
+          float wash = smoothstep(0.75, 0.98, n2 * 0.5 + (1.0 - coastDist / 12.0) * 0.5)
+                     * (1.0 - smoothstep(1.5, 6.0, coastDist)) * 0.06;
+
+          // thin solid foam collar hugging the waterline
+          float nEdge = noise(vPos.xz * 3.0 + uTime * 0.25);
+          float edge = 1.0 - smoothstep(0.55, 0.85, coastDist + (nEdge - 0.5) * 0.5);
+
+          float foam = clamp(edge + crest * 0.9 + wash, 0.0, 1.0);
+          col = mix(col, uFoam, foam);
+
+          float alpha = mix(0.95, 0.68, smoothstep(0.35, 0.9, shore));
+          alpha = max(alpha, foam * 0.96);
           gl_FragColor = vec4(col, alpha);
         }`
     });
     const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.y = WATER_Y + 0.16;
+    mesh.position.y = SURF_Y;
     mesh.renderOrder = 2;
     return { mesh, mat };
   }
@@ -378,18 +464,25 @@ export class TerrainView {
     const data = img.data;
     const exp = this.world.explored;
     for (let i = 0; i < MAP_W * MAP_H; i++) {
-      data[i * 4] = 10; data[i * 4 + 1] = 10; data[i * 4 + 2] = 18;
-      data[i * 4 + 3] = exp[i] ? 0 : 216;
+      // navy-tinted fog; material color is white so the canvas defines the tone
+      data[i * 4] = 13; data[i * 4 + 1] = 20; data[i * 4 + 2] = 34;
+      data[i * 4 + 3] = exp[i] ? 0 : 255;
     }
     mctx.putImageData(img, 0, 0);
-    // upscale with smoothing (twice) to soften the cell edges
+    // two blurred passes: a wide feather plus a denser core gives the edge a
+    // smooth s-curve falloff instead of a blobby hard rim
     const ctx = this.fogTexCanvas.getContext('2d')!;
     const W = this.fogTexCanvas.width, H = this.fogTexCanvas.height;
     ctx.clearRect(0, 0, W, H);
     ctx.imageSmoothingEnabled = true;
-    ctx.filter = 'blur(2px)';
+    ctx.globalAlpha = 0.85;
+    ctx.filter = 'blur(10px)';
+    ctx.drawImage(this.fogMaskCanvas, 0, 0, W, H);
+    ctx.globalAlpha = 0.55;
+    ctx.filter = 'blur(4px)';
     ctx.drawImage(this.fogMaskCanvas, 0, 0, W, H);
     ctx.filter = 'none';
+    ctx.globalAlpha = 1;
     this.fogTex.needsUpdate = true;
   }
 

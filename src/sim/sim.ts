@@ -2,11 +2,12 @@
 // combat, projectiles, fog. Deterministic given the same command stream.
 import {
   AGES, BUILDINGS, FARM_FOOD, FARM_RESEED_COST, MAP_W, POP_MAX, RES_ORDER,
-  TECHS, TRADE_BASE_GOLD, TRADE_GOLD_PER_TILE, UNITS, WONDER_COUNTDOWN
+  TECHS, TRADE_BASE_GOLD, TRADE_GOLD_PER_TILE, UNITS, WILDS, WONDER_COUNTDOWN
 } from '../core/config';
 import type { Building, NodeKind, Projectile, ResType, Unit } from '../core/types';
 import { RES_OF_NODE } from '../core/types';
 import { angleLerp, clamp, dist, dist2 } from '../core/utils';
+import { onWildsBuildingHit, onWildsBuildingRazed, onWildsUnitKilled, wildsReact } from './encounters';
 import { landPassableFor, waterPassable } from './pathfinding';
 import type { World } from './world';
 
@@ -201,6 +202,8 @@ function findTowerTarget(world: World, b: Building, range: number): number {
   world.unitsNear(b.x, b.z, range + 0.5, tmpUnits);
   for (const u of tmpUnits) {
     if (u.owner === b.owner) continue;
+    // towers don't waste arrows on grazing deer — only wilds on the attack
+    if (u.owner === WILDS && !world.wildThreat(u)) continue;
     const d = dist2(u.x, u.z, b.x, b.z);
     const prio = u.type === 'villager' ? d * 1.5 : d;
     if (prio < bestD) { bestD = prio; best = u.id; }
@@ -313,7 +316,8 @@ function updateUnit(world: World, u: Unit, dt: number) {
 }
 
 function isMilitary(u: Unit): boolean {
-  return u.type !== 'villager' && u.type !== 'boat' && u.type !== 'tradecart';
+  return u.type !== 'villager' && u.type !== 'boat' && u.type !== 'tradecart' &&
+    u.type !== 'refugee' && u.type !== 'gazelle';
 }
 
 // ---------- trade ----------
@@ -737,6 +741,7 @@ export function dealDamage(world: World, byOwner: number, targetId: number, rawD
     if (tu.owner === 0) world.emit({ t: 'underattack', owner: 0, x: tu.x, z: tu.z });
     if (tu.hp <= 0) {
       world.killUnit(tu, byOwner);
+      if (tu.owner === WILDS) onWildsUnitKilled(world, tu, byOwner);
       return;
     }
     reactToDamage(world, tu, byOwner, fromX, fromZ);
@@ -748,12 +753,33 @@ export function dealDamage(world: World, byOwner: number, targetId: number, rawD
     tb.lastHitT = world.time;
     world.emit({ t: 'hit', x: tb.x, z: tb.z, y: 1.0, melee: true });
     if (tb.owner === 0) world.emit({ t: 'underattack', owner: 0, x: tb.x, z: tb.z });
-    if (tb.hp <= 0) world.destroyBuilding(tb, byOwner);
+    if (tb.hp <= 0) {
+      world.destroyBuilding(tb, byOwner);
+      if (tb.owner === WILDS) onWildsBuildingRazed(world, tb, byOwner);
+    } else if (tb.owner === WILDS) {
+      onWildsBuildingHit(world, tb, byOwner);
+    }
   }
 }
 
 function reactToDamage(world: World, victim: Unit, byOwner: number, fromX: number, fromZ: number) {
   if (victim.water) return;
+  if (victim.owner === WILDS) {
+    // the wilds answer for themselves: herds bolt, packs and deserters bite back
+    wildsReact(world, victim, byOwner, fromX, fromZ);
+    return;
+  }
+  if (victim.type === 'refugee') {
+    // rescued refugees scatter from danger rather than running a fixed route
+    if (victim.task.type !== 'move' || !victim.path) {
+      const tc = world.tcPos[victim.owner];
+      world.releaseTask(victim);
+      victim.task = { type: 'move', x: tc.x + (Math.random() * 4 - 2), z: tc.z + 3 + Math.random() * 2 };
+      victim.path = null;
+      victim.resume = null;
+    }
+    return;
+  }
   if (victim.type === 'villager' || victim.type === 'tradecart') {
     // flee to town center unless already fleeing
     if (victim.task.type !== 'move' || !victim.path) {

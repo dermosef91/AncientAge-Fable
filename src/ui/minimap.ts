@@ -84,21 +84,29 @@ export class Minimap {
     }
     // trading post: a gold diamond once scouted
     const tp = w.tradePost;
-    if (tp && exp[Math.floor(tp.z) * MAP_W + Math.floor(tp.x)]) {
+    const diamond = (x: number, z: number, r: number, fill: string) => {
       ctx.save();
-      ctx.translate(tp.x * s, tp.z * s);
+      ctx.translate(x * s, z * s);
       ctx.rotate(Math.PI / 4);
-      ctx.fillStyle = '#f0c05a';
-      ctx.fillRect(-2.6, -2.6, 5.2, 5.2);
+      ctx.fillStyle = fill;
+      ctx.fillRect(-r, -r, r * 2, r * 2);
       ctx.strokeStyle = 'rgba(42,31,12,0.9)';
       ctx.lineWidth = 1;
-      ctx.strokeRect(-2.6, -2.6, 5.2, 5.2);
+      ctx.strokeRect(-r, -r, r * 2, r * 2);
       ctx.restore();
+    };
+    if (tp && exp[Math.floor(tp.z) * MAP_W + Math.floor(tp.x)]) {
+      diamond(tp.x, tp.z, 2.6, '#f0c05a');
+    }
+    // encounter sites still worth a march: smaller gold diamonds
+    for (const site of w.sites) {
+      if (!site.discovered || site.state === 'cleared') continue;
+      diamond(site.x, site.z, 1.9, site.kind === 'relic' ? '#ffe08a' : '#d8a94e');
     }
     // units
     for (const u of w.units.values()) {
       if (u.owner !== 0 && !exp[Math.floor(u.z) * MAP_W + Math.floor(u.x)]) continue;
-      ctx.fillStyle = u.owner === 0 ? '#eafff0' : '#ff8872';
+      ctx.fillStyle = u.owner === 0 ? '#eafff0' : u.owner === 1 ? '#ff8872' : '#d9c493';
       ctx.fillRect(u.x * s - 1.2, u.z * s - 1.2, 2.4, 2.4);
     }
 

@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { BUILDINGS } from '../core/config';
 import type { BuildingTypeId, Faction, UnitTypeId } from '../core/types';
+import { assets, instantiateCharacter, VILLAGER_CLIPS, type CharAsset } from './assets';
 import { buildingGeo, cropGeo, unitGeo, weaponGeo } from './models';
 import { MAT } from './parts';
 
@@ -46,11 +47,34 @@ function init(): boolean {
   }
 }
 
+/**
+ * Bounds of an object as it will actually be drawn. Box3.setFromObject reads a
+ * skinned mesh's bind pose, which for a character in a T-pose is far wider than
+ * the pose we render — so sample the posed vertices instead.
+ */
+function posedBox(obj: THREE.Object3D): THREE.Box3 {
+  obj.updateMatrixWorld(true);
+  const box = new THREE.Box3();
+  const v = new THREE.Vector3();
+  let skinned = false;
+  obj.traverse(o => {
+    const mesh = o as THREE.SkinnedMesh;
+    if (!mesh.isSkinnedMesh) return;
+    const count = mesh.geometry.getAttribute('position').count;
+    const stride = Math.max(1, Math.ceil(count / 4000));
+    for (let i = 0; i < count; i += stride) {
+      box.expandByPoint(mesh.getVertexPosition(i, v).applyMatrix4(mesh.matrixWorld));
+    }
+    skinned = true;
+  });
+  return skinned ? box : new THREE.Box3().setFromObject(obj);
+}
+
 /** Frame an object isometrically and grab a PNG data URL. */
 function snapshot(obj: THREE.Object3D, pad = 1.06): string {
   if (!init() || !renderer || !scene || !camera) return '';
   scene.add(obj);
-  const box = new THREE.Box3().setFromObject(obj);
+  const box = posedBox(obj);
   const sphere = box.getBoundingSphere(new THREE.Sphere());
   const r = Math.max(0.25, sphere.radius * pad);
   const dir = new THREE.Vector3(0.62, 0.6, 0.95).normalize();
@@ -91,23 +115,47 @@ export function buildingThumb(type: BuildingTypeId, faction: Faction, tier = 0):
   return url;
 }
 
+/** A skeleton clone of a sculpted villager, frozen in its idle pose. */
+function posedVillager(asset: CharAsset): THREE.Object3D {
+  const { root, mixer } = instantiateCharacter(asset);
+  const clip = asset.clips.get(VILLAGER_CLIPS.idle) ?? asset.clips.values().next().value;
+  if (clip) {
+    mixer.clipAction(clip).play();
+    // A hair into the clip: frame zero can still be the bind pose.
+    mixer.update(Math.min(0.4, clip.duration * 0.25));
+  }
+  root.updateMatrixWorld(true);
+  return root;
+}
+
 export function unitThumb(type: UnitTypeId, faction: Faction): string {
-  const key = `u:${type}:${faction}`;
+  // Villagers are sculpted models in game, so the menus must show those too.
+  // The key records which art was used: a thumbnail baked before the models
+  // finished loading is replaced rather than kept.
+  const rigged =
+    type === 'villager' ? assets.villagers[faction] :
+    type === 'refugee' ? assets.wilds.woman :
+    type === 'mercenary' ? assets.wilds.bandit : null;
+  const key = `u:${type}:${faction}:${rigged ? 'model' : 'geo'}`;
   const hit = cache.get(key);
   if (hit !== undefined) return hit;
 
   const group = new THREE.Group();
-  group.add(new THREE.Mesh(unitGeo(type, faction), MAT.main));
-  const wk = type === 'villager' ? 'tool' :
-    type === 'spearman' || type === 'hoplite' ? 'spear' :
-    type === 'legionary' ? 'sword' :
-    type === 'archer' || type === 'chariot' ? 'bow' : null;
-  if (wk) {
-    const w = new THREE.Mesh(weaponGeo(wk), MAT.main);
-    const s = type === 'hoplite' ? 1.05 : 1;
-    w.position.set(0.21 * s, type === 'chariot' ? 0.62 : 0.42, 0.06);
-    w.rotation.x = wk === 'bow' ? -0.3 : -0.5;
-    group.add(w);
+  if (rigged) {
+    group.add(posedVillager(rigged));
+  } else {
+    group.add(new THREE.Mesh(unitGeo(type, faction), MAT.main));
+    const wk = type === 'villager' ? 'tool' :
+      type === 'spearman' || type === 'hoplite' ? 'spear' :
+      type === 'legionary' ? 'sword' :
+      type === 'archer' || type === 'chariot' ? 'bow' : null;
+    if (wk) {
+      const w = new THREE.Mesh(weaponGeo(wk), MAT.main);
+      const s = type === 'hoplite' ? 1.05 : 1;
+      w.position.set(0.21 * s, type === 'chariot' ? 0.62 : 0.42, 0.06);
+      w.rotation.x = wk === 'bow' ? -0.3 : -0.5;
+      group.add(w);
+    }
   }
   group.rotation.y = 0.5;
   const url = snapshot(group, type === 'boat' || type === 'chariot' ? 1.05 : 0.9);

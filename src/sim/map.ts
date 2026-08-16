@@ -1,10 +1,11 @@
 // Procedural skirmish maps: every match rolls a fresh world. An archetype
 // shapes the water (open coast, island chains, lake lands or a great river),
-// biomes paint the land, and a guaranteed land route links the two towns.
-import { MAP_H, MAP_W } from '../core/config';
-import type { Faction } from '../core/types';
+// biomes paint the land, a guaranteed land route links the two towns, and
+// the wilds between them are seeded with encounters worth marching out for.
+import { ENC, MAP_H, MAP_W, WILDS } from '../core/config';
+import type { BuildingTypeId, EncounterKind, EncounterSite, Faction, UnitTypeId } from '../core/types';
 import { clamp, dist, fbm, makeNoise2D, makeRng } from '../core/utils';
-import { F_BLOCK, F_WATER, landPassable } from './pathfinding';
+import { F_BLOCK, F_BUILDING, F_WATER, landPassable, nearestFree } from './pathfinding';
 import type { World } from './world';
 
 export const WATER_Y = -0.34;
@@ -717,6 +718,158 @@ export function genMap(world: World, seed: number, playerFaction: Faction, aiFac
     deco.push({ kind: 'tradepost', x: px + 0.5, z: pz + 0.5, rot: 0.35, scale: 1 });
     world.grid[pz * MAP_W + px] |= F_BLOCK;
     world.grid[pz * MAP_W + px + 1] |= F_BLOCK;
+  }
+
+  // ---------------------------------------------------------------- encounters
+  // Seed the wilds: herds, wolf dens, deserters, cairns, refugees, the idol.
+  {
+    // one flood fill from home marks everything a marching column can reach
+    const reach = new Uint8Array(N);
+    {
+      const queue = new Int32Array(N);
+      let head = 0, tail = 0;
+      // the town center sits on the start cell itself — flood from beside it
+      const free = nearestFree(world.grid, playerStart.x, playerStart.z, false, 10);
+      if (free) {
+        const start = free.z * MAP_W + free.x;
+        queue[tail++] = start; reach[start] = 1;
+      }
+      while (head < tail) {
+        const i = queue[head++];
+        const x = i % MAP_W, z = (i / MAP_W) | 0;
+        for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const nx = x + dx, nz = z + dz;
+          if (nx < 1 || nz < 1 || nx >= MAP_W - 1 || nz >= MAP_H - 1) continue;
+          const ni = nz * MAP_W + nx;
+          if (reach[ni] || (world.grid[ni] & (F_WATER | F_BLOCK | F_BUILDING))) continue;
+          reach[ni] = 1; queue[tail++] = ni;
+        }
+      }
+    }
+
+    const placedSites: { x: number; z: number }[] = [];
+    const openFor = (cx: number, cz: number, size: number): boolean => {
+      for (let z = cz - 1; z < cz + size + 1; z++) {
+        for (let x = cx - 1; x < cx + size + 1; x++) {
+          if (x < 2 || z < 2 || x >= MAP_W - 2 || z >= MAP_H - 2) return false;
+          if (!landPassable(world.grid, x, z)) return false;
+        }
+      }
+      return reach[cz * MAP_W + cx] === 1;
+    };
+    const pickSpot = (size: number, minBase: number): { cx: number; cz: number } | null => {
+      for (let tries = 0; tries < 260; tries++) {
+        const cx = 6 + Math.floor(rng() * (MAP_W - 12));
+        const cz = 6 + Math.floor(rng() * (MAP_H - 12));
+        if (!openFor(cx, cz, size)) continue;
+        if (!farFromBases(cx, cz, minBase)) continue;
+        if (dist(cx, cz, world.tradePost!.x, world.tradePost!.z) < 10) continue;
+        if (placedSites.some(s => dist(s.x, s.z, cx, cz) < 15)) continue;
+        return { cx, cz };
+      }
+      return null;
+    };
+
+    const addSite = (kind: EncounterKind, x: number, z: number, variant = 0): EncounterSite => {
+      const site: EncounterSite = {
+        id: world.nextId++, kind, x, z,
+        state: 'dormant', discovered: false, offered: false,
+        unitIds: [], buildingId: 0, carrierId: 0, provokedBy: -1,
+        timer: kind === 'den' ? 25 : 0, variant
+      };
+      world.sites.push(site);
+      placedSites.push({ x, z });
+      return site;
+    };
+
+    const wildBuilding = (type: BuildingTypeId, cx: number, cz: number): number => {
+      const b = world.placeBuilding(WILDS, type, cx, cz, true, Math.floor(rng() * 4));
+      // a prop must never wall off the one road between the towns
+      if (!landReachable(playerStart.x, playerStart.z, enemyStart.x, enemyStart.z)) {
+        world.removeBuilding(b);
+        return 0;
+      }
+      return b.id;
+    };
+
+    const spawnPack = (site: EncounterSite, type: UnitTypeId, count: number, spread: number) => {
+      for (let i = 0; i < count; i++) {
+        const a = rng() * Math.PI * 2, r = 0.8 + Math.sqrt(rng()) * spread;
+        let x = site.x + Math.cos(a) * r, z = site.z + Math.sin(a) * r;
+        if (!landPassable(world.grid, Math.floor(x), Math.floor(z))) { x = site.x; z = site.z; }
+        const u = world.spawnUnit(WILDS, type, x, z);
+        u.post = { x: site.x, z: site.z };
+        u.dir = rng() * Math.PI * 2;
+        site.unitIds.push(u.id);
+      }
+    };
+
+    // herds graze the middle distance — early meat for whoever hunts them
+    for (let i = 0; i < ENC.herdSites; i++) {
+      const s = pickSpot(1, 20);
+      if (!s) continue;
+      const boars = rng() < 0.3;
+      const site = addSite('herd', s.cx + 0.5, s.cz + 0.5, boars ? 1 : 0);
+      spawnPack(site, boars ? 'boar' : 'gazelle', boars ? 2 : 4 + Math.floor(rng() * 2), 2.5);
+      site.state = 'active';
+    }
+    // wolf dens deep in the wilds
+    for (let i = 0; i < ENC.denSites; i++) {
+      const s = pickSpot(2, 42);
+      if (!s) continue;
+      const site = addSite('den', s.cx + 1, s.cz + 1);
+      site.buildingId = wildBuilding('den', s.cx, s.cz);
+      if (!site.buildingId) { world.sites.pop(); continue; }
+      spawnPack(site, 'wolf', 2, 2);
+      site.state = 'active';
+    }
+    // deserters' camps guard the deep field
+    for (let i = 0; i < ENC.campSites; i++) {
+      const s = pickSpot(3, 48);
+      if (!s) continue;
+      const site = addSite('camp', s.cx + 1.5, s.cz + 1.5);
+      site.buildingId = wildBuilding('camp', s.cx, s.cz);
+      if (!site.buildingId) { world.sites.pop(); continue; }
+      spawnPack(site, 'mercenary', ENC.mercCount, 2.2);
+      site.state = 'active';
+    }
+    // buried cairns reward every scouting trip
+    for (let i = 0; i < ENC.cacheSites; i++) {
+      const s = pickSpot(1, 16);
+      if (!s) continue;
+      const site = addSite('cache', s.cx + 0.5, s.cz + 0.5, Math.floor(rng() * 3));
+      site.buildingId = wildBuilding('cairn', s.cx, s.cz);
+      if (!site.buildingId) { world.sites.pop(); continue; }
+      site.state = 'active';
+    }
+    // refugees hiding out past the midfield
+    for (let i = 0; i < ENC.refugeeSites; i++) {
+      const s = pickSpot(1, 38);
+      if (!s) continue;
+      const site = addSite('refugees', s.cx + 0.5, s.cz + 0.5);
+      spawnPack(site, 'refugee', ENC.refugeeCount, 1.4);
+    }
+    // one Golden Idol, as far from both thrones as the land allows
+    {
+      let best: { cx: number; cz: number } | null = null, bestScore = -1;
+      for (let tries = 0; tries < 300; tries++) {
+        const cx = 6 + Math.floor(rng() * (MAP_W - 12));
+        const cz = 6 + Math.floor(rng() * (MAP_H - 12));
+        if (!openFor(cx, cz, 1)) continue;
+        if (placedSites.some(s => dist(s.x, s.z, cx, cz) < 12)) continue;
+        const score = Math.min(
+          dist(cx, cz, playerStart.x, playerStart.z),
+          dist(cx, cz, enemyStart.x, enemyStart.z)
+        );
+        if (score > bestScore) { bestScore = score; best = { cx, cz }; }
+      }
+      if (best && bestScore > 40) {
+        const site = addSite('relic', best.cx + 0.5, best.cz + 0.5);
+        site.buildingId = wildBuilding('pedestal', best.cx, best.cz);
+        if (!site.buildingId) world.sites.pop();
+        else site.state = 'active';
+      }
+    }
   }
 
   // ---------------------------------------------------------------- fog

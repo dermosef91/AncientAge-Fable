@@ -4,6 +4,7 @@ import { DIFFICULTY, TICK } from './core/config';
 import type { Difficulty, Faction } from './core/types';
 import { pick, makeRng } from './core/utils';
 import { AIController } from './sim/ai';
+import { Encounters } from './sim/encounters';
 import { genMap } from './sim/map';
 import { simTick } from './sim/sim';
 import { World } from './sim/world';
@@ -28,6 +29,7 @@ class Game {
   hud: HUD;
   minimap: Minimap;
   ai: AIController;
+  encounters: Encounters;
   paused = false;
   timescale = 1;
   private raf = 0;
@@ -53,6 +55,7 @@ class Game {
     this.world = new World(faction, this.enemyFaction, DIFFICULTY[difficulty].aiGatherMul);
     genMap(this.world, 1 + Math.floor(rng() * 0x7fffffff), faction, this.enemyFaction);
     this.ai = new AIController(this.world, difficulty);
+    this.encounters = new Encounters(this.world);
 
     this.view = new GameView(this.world, canvas);
     this.input = new InputController(this.world, this.view, sound, canvas);
@@ -94,6 +97,7 @@ class Game {
     for (let i = 0; i < n; i++) {
       simTick(this.world, TICK);
       this.ai.step(TICK);
+      this.encounters.step(TICK);
     }
     this.fanOutEvents();
   }
@@ -122,6 +126,7 @@ class Game {
       while (this.acc >= TICK && ticks < 8 * this.timescale) {
         simTick(this.world, TICK);
         this.ai.step(TICK);
+        this.encounters.step(TICK);
         this.acc -= TICK;
         ticks++;
       }
