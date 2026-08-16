@@ -865,7 +865,7 @@ export class HUD {
     mk(icon('home', 18), 'Change Civilization', () => { this.closeMenu(); this.cb.onQuit(); });
     const tip = document.createElement('div');
     tip.className = 'menu-tip';
-    tip.textContent = 'Tap units to select, tap ground to move, tap enemies to attack. Drag to pan, pinch to zoom.';
+    tip.textContent = 'Tap units to select, tap ground to move, tap enemies to attack. Drag to pan, pinch to zoom. WASD or arrow keys scroll the camera (hold Shift to hurry).';
     modal.appendChild(tip);
     overlay.appendChild(modal);
     overlay.addEventListener('click', e => { if (e.target === overlay) this.closeMenu(); });

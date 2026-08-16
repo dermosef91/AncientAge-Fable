@@ -38,6 +38,8 @@ export class InputController {
   private mouseSeen = false;
   edgeScroll = true;
   private idleCycle = 0;
+  /** Physical key codes currently held for camera panning (WASD / arrows). */
+  private panKeys = new Set<string>();
 
   constructor(
     private world: World,
@@ -56,6 +58,7 @@ export class InputController {
     canvas.addEventListener('wheel', this.onWheel, { passive: false });
     canvas.addEventListener('contextmenu', this.onCtx);
     window.addEventListener('keydown', this.onKey);
+    window.addEventListener('keyup', this.onKeyUp);
     window.addEventListener('pointermove', this.onWindowMove);
     window.addEventListener('pointerleave', this.onWindowLeave);
     window.addEventListener('blur', this.onWindowLeave);
@@ -70,6 +73,7 @@ export class InputController {
     this.canvas.removeEventListener('wheel', this.onWheel);
     this.canvas.removeEventListener('contextmenu', this.onCtx);
     window.removeEventListener('keydown', this.onKey);
+    window.removeEventListener('keyup', this.onKeyUp);
     window.removeEventListener('pointermove', this.onWindowMove);
     window.removeEventListener('pointerleave', this.onWindowLeave);
     window.removeEventListener('blur', this.onWindowLeave);
@@ -83,7 +87,7 @@ export class InputController {
     this.mouseX = e.clientX;
     this.mouseY = e.clientY;
   };
-  private onWindowLeave = () => { this.mouseSeen = false; };
+  private onWindowLeave = () => { this.mouseSeen = false; this.panKeys.clear(); };
 
   /** Pan the camera when the mouse rests against a screen edge. */
   updateEdgePan(dt: number) {
@@ -100,6 +104,22 @@ export class InputController {
     const ease = (v: number) => Math.sign(v) * v * v;
     const speed = 1250 * dt;
     this.panByScreenDelta(-ease(dx) * speed, -ease(dy) * speed);
+  }
+
+  /** Pan the camera from held WASD / arrow keys. */
+  updateKeyPan(dt: number) {
+    if (this.panKeys.size === 0) return;
+    const held = (...codes: string[]) => codes.some(c => this.panKeys.has(c));
+    let dx = 0, dy = 0;
+    if (held('KeyW', 'ArrowUp')) dy += 1;
+    if (held('KeyS', 'ArrowDown')) dy -= 1;
+    if (held('KeyA', 'ArrowLeft')) dx += 1;
+    if (held('KeyD', 'ArrowRight')) dx -= 1;
+    if (dx === 0 && dy === 0) return;
+    // normalize so diagonals aren't faster
+    const len = Math.hypot(dx, dy);
+    const speed = (this.panKeys.has('ShiftLeft') || this.panKeys.has('ShiftRight') ? 2200 : 1100) * dt;
+    this.panByScreenDelta((dx / len) * speed, (dy / len) * speed);
   }
 
   // ---------------- public API ----------------
@@ -368,7 +388,21 @@ export class InputController {
     this.handleCommandAt(e.clientX, e.clientY);
   };
 
+  /** Keys that scroll the view; tracked by physical position so ZQSD layouts work too. */
+  private static PAN_CODES = new Set([
+    'KeyW', 'KeyA', 'KeyS', 'KeyD',
+    'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+    'ShiftLeft', 'ShiftRight'
+  ]);
+
   private onKey = (e: KeyboardEvent) => {
+    const el = document.activeElement;
+    const typing = el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement ||
+      (el instanceof HTMLElement && el.isContentEditable);
+    if (!typing && !e.ctrlKey && !e.metaKey && !e.altKey && InputController.PAN_CODES.has(e.code)) {
+      this.panKeys.add(e.code);
+      if (e.code.startsWith('Arrow')) e.preventDefault(); // arrows would scroll the page
+    }
     if (e.key === 'Escape') {
       if (this.mode !== 'normal') this.cancelPlacement();
       else this.clearSelection();
@@ -377,6 +411,10 @@ export class InputController {
       if (e.key === 'r' || e.key === 'R') this.rotatePlacement();
       if (e.key === 'Enter') this.confirmPlacement();
     }
+  };
+
+  private onKeyUp = (e: KeyboardEvent) => {
+    this.panKeys.delete(e.code);
   };
 
   private panByScreenDelta(dx: number, dy: number) {

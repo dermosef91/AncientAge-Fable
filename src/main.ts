@@ -135,7 +135,10 @@ class Game {
     this.fanOutEvents();
 
     this.input.validateSelection();
-    if (!this.paused) this.input.updateEdgePan(rdt);
+    if (!this.paused) {
+      this.input.updateEdgePan(rdt);
+      this.input.updateKeyPan(rdt);
+    }
     const alpha = Math.max(0, Math.min(1, this.acc / TICK));
     this.view.update(alpha, rdt, t / 1000);
     this.hud.update(rdt);
