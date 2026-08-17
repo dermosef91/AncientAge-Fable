@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { BUILDINGS } from '../core/config';
 import type { BuildingTypeId, Faction, UnitTypeId } from '../core/types';
 import { assets, instantiateCharacter, VILLAGER_CLIPS, type CharAsset } from './assets';
-import { buildingGeo, cropGeo, unitGeo, weaponGeo } from './models';
+import { buildingGeo, cropGeo, toolGeo, unitGeo, weaponGeo } from './models';
 import { MAT } from './parts';
 
 const SIZE = 168;
@@ -145,12 +145,12 @@ export function unitThumb(type: UnitTypeId, faction: Faction): string {
     group.add(posedVillager(rigged));
   } else {
     group.add(new THREE.Mesh(unitGeo(type, faction), MAT.main));
-    const wk = type === 'villager' ? 'tool' :
-      type === 'spearman' || type === 'hoplite' ? 'spear' :
+    const wk = type === 'spearman' || type === 'hoplite' ? 'spear' :
       type === 'legionary' ? 'sword' :
       type === 'archer' || type === 'chariot' ? 'bow' : null;
-    if (wk) {
-      const w = new THREE.Mesh(weaponGeo(wk), MAT.main);
+    // the villager poses with an axe, the commonest of its working tools
+    if (wk || type === 'villager') {
+      const w = new THREE.Mesh(wk ? weaponGeo(wk) : toolGeo('axe'), MAT.main);
       const s = type === 'hoplite' ? 1.05 : 1;
       w.position.set(0.21 * s, type === 'chariot' ? 0.62 : 0.42, 0.06);
       w.rotation.x = wk === 'bow' ? -0.3 : -0.5;

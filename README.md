@@ -186,6 +186,18 @@ radiating from the villa.
   skeleton-cloned per unit with root motion stripped so the simulation still
   owns position. Everything else stays procedural, and both models fall back
   to procedural geometry if they fail to load.
+- **Villagers carry the kit their job calls for** — an axe at the trees, a
+  pickaxe at stone and gold, a sickle on the farm, a mallet on a building
+  site, a hand net at the fishing shallows and a basket while foraging. The
+  tools are procedural geometry parented to the rig's hand bones (the basket
+  is kept level as the arm swings) and swap as orders change, so the load a
+  villager hauls home matches what they were just doing.
+- **Buildings burn while they are under attack** and for a few seconds after
+  the last blow lands. The fire takes hold faster the worse the damage, with
+  flame licks pinned up the walls, across the roof and at the foundations, a
+  smoke column overhead, embers on the updraft and soot darkening the stone
+  until it goes out. Flames and smoke are camera-facing sprites sized in world
+  units, batched into two draw calls (`src/render/effects.ts`).
 - Fog of war, minimap, pooled particles, procedural WebAudio sound,
   and an AI that runs its own economy, advances ages, expands, defends,
   and raids through the same command API the player uses.

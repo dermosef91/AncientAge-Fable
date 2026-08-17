@@ -1615,7 +1615,7 @@ export const UNIT_VIS_HEIGHT: Record<UnitTypeId, number> = {
 };
 
 // weapons: origin at grip, blade along +y
-export function weaponGeo(kind: 'spear' | 'sword' | 'bow' | 'tool'): THREE.BufferGeometry {
+export function weaponGeo(kind: 'spear' | 'sword' | 'bow'): THREE.BufferGeometry {
   return cached(`w_${kind}`, p => {
     if (kind === 'spear') {
       p.cyl(PAL.woodDark, 0.016, 0.016, 0.85, 0, 0.18, 0, { seg: 4 });
@@ -1625,30 +1625,99 @@ export function weaponGeo(kind: 'spear' | 'sword' | 'bow' | 'tool'): THREE.Buffe
       p.cone(0xc9ccd1, 0.024, 0.06, 0, 0.4, 0, { seg: 4 });
       p.box(PAL.gold, 0.09, 0.025, 0.03, 0, 0.06, 0);
       p.cyl(PAL.woodDark, 0.014, 0.014, 0.09, 0, 0.0, 0, { seg: 4 });
-    } else if (kind === 'bow') {
+    } else {
       p.torus(PAL.woodDark, 0.19, 0.013, Math.PI * 0.85, 0, 0.15, 0, { rz: -Math.PI * 0.42 });
       p.box(0xd8cfb8, 0.005, 0.36, 0.005, 0.045, 0.15, 0);
-    } else {
-      p.cyl(PAL.woodDark, 0.018, 0.018, 0.4, 0, 0.1, 0, { seg: 4 });
-      p.box(0x8a8378, 0.05, 0.09, 0.14, 0, 0.32, 0.03);
     }
   });
 }
 
+// ---------------------------------------------------------------- villager kit
+/** What a villager holds while working. */
+export type ToolKind = 'axe' | 'pickaxe' | 'sickle' | 'mallet' | 'net' | 'basket';
+
+const BRONZE = 0xb0803f;
+const BRONZE_LIGHT = 0xcda05a;
+const IRON = 0x8d9198;
+const LASH = 0x4a3826; // leather binding at the head of a haft
+
+/**
+ * The forager's basket. It hangs from the origin — the top of its handle — so
+ * that dropping it at a hand keeps it dangling the right way up.
+ */
+function emptyBasket(p: Parts) {
+  p.cyl(0xb08d5a, 0.13, 0.095, 0.15, 0, -0.205, 0, { seg: 7 });
+  p.cyl(0x9c7a48, 0.135, 0.13, 0.03, 0, -0.12, 0, { seg: 7 });
+  p.torus(0x9c7a48, 0.115, 0.014, Math.PI, 0, -0.115, 0, { shade: 0.95 });
+}
+
+/**
+ * A villager's working tool. Same convention as the weapons: the grip sits at
+ * the origin with the haft running up +y and the business end facing +z, so a
+ * tool can be dropped into either the procedural unit or a rigged hand bone.
+ */
+export function toolGeo(kind: ToolKind): THREE.BufferGeometry {
+  return cached(`t_${kind}`, p => {
+    switch (kind) {
+      case 'axe':
+        p.cyl(PAL.woodDark, 0.015, 0.019, 0.5, 0, 0.17, 0, { seg: 5 });
+        p.cyl(LASH, 0.022, 0.022, 0.06, 0, 0.37, 0, { seg: 5 });
+        p.box(BRONZE, 0.028, 0.12, 0.06, 0, 0.4, 0.05);                          // head
+        p.box(BRONZE_LIGHT, 0.02, 0.17, 0.05, 0, 0.4, 0.105, { shade: 1.05 });   // flared bit
+        break;
+      case 'pickaxe':
+        p.cyl(PAL.woodDark, 0.015, 0.019, 0.46, 0, 0.15, 0, { seg: 5 });
+        p.cyl(LASH, 0.022, 0.022, 0.06, 0, 0.33, 0, { seg: 5 });
+        p.box(IRON, 0.034, 0.06, 0.12, 0, 0.36, 0);                              // eye block
+        p.cone(IRON, 0.036, 0.26, 0, 0.345, 0.12, { seg: 4, rx: Math.PI / 2 + 0.2 });  // point
+        p.box(IRON, 0.032, 0.055, 0.17, 0, 0.35, -0.1, { rx: 0.2, shade: 0.94 });      // adze
+        p.box(BRONZE_LIGHT, 0.03, 0.075, 0.035, 0, 0.335, -0.19, { rx: 0.2, shade: 1.06 });
+        break;
+      case 'sickle':
+        p.cyl(PAL.woodDark, 0.018, 0.021, 0.17, 0, 0.04, 0, { seg: 5 });
+        p.cyl(LASH, 0.024, 0.024, 0.04, 0, 0.13, 0, { seg: 5 });
+        // blade: a hook sweeping from in front of the grip up and over
+        p.torus(BRONZE_LIGHT, 0.13, 0.022, Math.PI * 0.78, 0, 0.16, 0, { ry: -Math.PI / 2 });
+        break;
+      case 'mallet':
+        p.cyl(PAL.woodDark, 0.017, 0.02, 0.42, 0, 0.13, 0, { seg: 5 });
+        p.cyl(LASH, 0.023, 0.023, 0.05, 0, 0.3, 0, { seg: 5 });
+        p.box(PAL.stone, 0.07, 0.1, 0.19, 0, 0.35, 0);                           // stone head
+        p.box(PAL.stoneLight, 0.072, 0.062, 0.045, 0, 0.35, 0.095, { shade: 1.06 });
+        p.box(PAL.stoneLight, 0.072, 0.062, 0.045, 0, 0.35, -0.095, { shade: 0.94 });
+        break;
+      case 'net':
+        p.cyl(PAL.woodDark, 0.014, 0.017, 0.34, 0, 0.1, 0, { seg: 4 });
+        p.torus(PAL.woodLight, 0.1, 0.014, Math.PI * 2, 0, 0.27, 0.09, { rx: Math.PI / 2 });
+        p.cone(0xd6cdb2, 0.088, 0.14, 0, 0.2, 0.09, { seg: 6, rx: Math.PI, shade: 0.96 });
+        break;
+      case 'basket':
+        emptyBasket(p);
+        break;
+    }
+  });
+}
+
+/** The load a villager walks home with — the food kinds ride in a basket. */
 export function carryGeo(kind: NodeKind): THREE.BufferGeometry {
   return cached(`c_${kind}`, p => {
     if (kind === 'tree') {
       p.cyl(PAL.trunk, 0.05, 0.05, 0.42, 0, 0, 0, { seg: 5, rz: Math.PI / 2, ry: 0.3 });
       p.cyl(PAL.trunk, 0.045, 0.045, 0.38, 0, 0.08, 0.03, { seg: 5, rz: Math.PI / 2, ry: -0.2, shade: 0.9 });
-    } else if (kind === 'berries' || kind === 'fish') {
-      p.cyl(0xb08d5a, 0.11, 0.08, 0.14, 0, 0, 0, { seg: 6 });
+    } else if (kind === 'berries' || kind === 'fish' || kind === 'carcass') {
+      // the forager's basket, now heaped with the catch
+      emptyBasket(p);
       if (kind === 'berries') {
-        p.sphere(PAL.berry, 0.04, 0.04, 0.09, 0.02, { seg: 4 });
-        p.sphere(PAL.berry, 0.038, -0.04, 0.08, -0.02, { seg: 4 });
-        p.sphere(0xd8b455, 0.045, 0, 0.1, -0.05, { seg: 4 });
+        p.sphere(PAL.berry, 0.045, 0.045, -0.1, 0.02, { seg: 4 });
+        p.sphere(PAL.berry, 0.04, -0.045, -0.11, -0.02, { seg: 4 });
+        p.sphere(0xd8b455, 0.05, 0, -0.09, -0.05, { seg: 4 });
+      } else if (kind === 'fish') {
+        p.box(0x9ab2b8, 0.06, 0.05, 0.2, 0, -0.1, 0, { ry: 0.4 });
+        p.cone(0x7a949a, 0.03, 0.07, 0, -0.1, 0.12, { rx: Math.PI / 2, ry: 0.4 });
+        p.box(0x8aa2a8, 0.05, 0.045, 0.17, 0.03, -0.08, -0.03, { ry: -0.5, shade: 0.94 });
       } else {
-        p.box(0x9ab2b8, 0.06, 0.05, 0.2, 0, 0.08, 0, { ry: 0.4 });
-        p.cone(0x7a949a, 0.03, 0.07, 0, 0.08, 0.12, { rx: Math.PI / 2, ry: 0.4 });
+        p.box(0xa85a4a, 0.09, 0.06, 0.13, 0, -0.09, 0, { ry: 0.3 });
+        p.box(0xbd6b58, 0.07, 0.05, 0.1, 0.02, -0.05, 0.02, { ry: -0.4, shade: 1.05 });
       }
     } else if (kind === 'stone') {
       p.ico(PAL.stone, 0.11, 0, 0.02, 0);
