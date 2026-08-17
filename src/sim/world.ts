@@ -138,17 +138,18 @@ export class World {
     const d = UNITS[type];
     const p = this.players[owner];
     const f = FACTIONS[p.faction];
-    let hp = d.hp, atk = d.atk, armor = d.armor, speed = d.speed;
+    let hp = d.hp, atk = d.atk, speed = d.speed;
+    let meleeArmor = d.meleeArmor, pierceArmor = d.pierceArmor;
     const isMil = type !== 'villager' && type !== 'boat' && type !== 'tradecart';
     if (isMil && f.bonus.unitHpMul) hp *= f.bonus.unitHpMul;
     if (isMil && p.techs.has('bronze')) atk *= 1.25;
-    if (isMil && p.techs.has('shields')) { armor += 1; hp *= 1.15; }
+    if (isMil && p.techs.has('shields')) { meleeArmor += 1; pierceArmor += 1; hp *= 1.15; }
     if (type === 'villager' && p.techs.has('wheel')) speed *= 1.2;
     if (type === 'villager' && this.hasBoon(owner, 'pelts')) hp *= 1.25;
     if (type === 'boat' && this.hasBuilt(owner, 'lighthouse')) speed *= 1.2;
     // The amphitheater's games embolden everyone (non-stacking).
     if (atk > 0 && this.hasBuilt(owner, 'amphitheater')) atk *= 1.3;
-    return { hp: Math.round(hp), atk, armor, speed };
+    return { hp: Math.round(hp), atk, meleeArmor, pierceArmor, speed };
   }
 
   buildingHp(owner: number, type: BuildingTypeId): number {
@@ -158,6 +159,16 @@ export class World {
     if (p.techs.has('masonry')) hp *= 1.25;
     if ((type === 'tower' || type === 'wall') && f.bonus.towerWallHpMul) hp *= f.bonus.towerWallHpMul;
     return Math.round(hp);
+  }
+
+  /**
+   * Damage a building soaks from blades and arrows. Masonry thickens the walls;
+   * siege damage bypasses this entirely (see `resolveDamage`).
+   */
+  buildingArmor(owner: number, type: BuildingTypeId): number {
+    const base = BUILDINGS[type].armor ?? 0;
+    if (base <= 0) return 0;
+    return base + (this.players[owner].techs.has('masonry') ? 1 : 0);
   }
 
   buildingCost(owner: number, type: BuildingTypeId): Cost {
@@ -251,6 +262,48 @@ export class World {
     }
     if (type === 'towncenter') this.refreshTcPos(owner);
     return b;
+  }
+
+  /**
+   * Hand a standing building to a new owner, as when a ruined fort is claimed.
+   * Max HP is recomputed against the new owner's faction and techs, and the
+   * wound it was carrying is preserved as a fraction — taking a fort does not
+   * repair it.
+   */
+  reassignBuilding(b: Building, owner: number) {
+    if (b.owner === owner) return;
+    const def = BUILDINGS[b.type];
+    const frac = b.maxHp > 0 ? b.hp / b.maxHp : 1;
+    if (b.built) {
+      this.noteBuilt(b.owner, b.type, -1);
+      if (def.pop) {
+        const old = this.players[b.owner];
+        old.popCap = Math.max(0, old.popCap - def.pop);
+      }
+    }
+    // Walls gate for their owner, so the pass-through flag has to move too.
+    if (b.type === 'wall') {
+      for (let z = b.cz; z < b.cz + b.size; z++) {
+        for (let x = b.cx; x < b.cx + b.size; x++) {
+          const i = z * MAP_W + x;
+          this.grid[i] &= ~(F_WALL0 | F_WALL1);
+          this.grid[i] |= owner === 0 ? F_WALL0 : F_WALL1;
+        }
+      }
+    }
+    b.owner = owner;
+    b.rally = null;
+    b.queue.length = 0;
+    b.maxHp = this.buildingHp(owner, b.type);
+    b.hp = Math.max(1, Math.round(b.maxHp * frac));
+    if (b.built) {
+      this.noteBuilt(owner, b.type, 1);
+      if (def.pop) {
+        const p = this.players[owner];
+        p.popCap = Math.min(POP_MAX, p.popCap + def.pop);
+      }
+    }
+    this.emit({ t: 'upgrade', id: b.id, owner, bType: b.type, x: b.x, z: b.z });
   }
 
   /** Keep tcPos pointing at a living town center (used for AI targeting and fleeing). */
@@ -848,7 +901,14 @@ export class World {
       if (prio < bestD) { bestD = prio; bestId = u.id; }
     }
     if (bestId || unitsOnly) return bestId;
-    // buildings second
+    return this.findEnemyBuilding(owner, x, z, r);
+  }
+
+  /**
+   * Nearest enemy building within radius. Siege engines use this directly —
+   * they exist to break stone and never chase soft targets.
+   */
+  findEnemyBuilding(owner: number, x: number, z: number, r: number): number {
     let bestB = 0; let bestBD = r * r * 1.4;
     const x0 = Math.floor((x - r) / 2), x1 = Math.floor((x + r) / 2);
     const z0 = Math.floor((z - r) / 2), z1 = Math.floor((z + r) / 2);

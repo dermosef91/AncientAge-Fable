@@ -1,7 +1,9 @@
 // Enemy AI: runs its economy, expands, defends its base, and launches
 // escalating attack waves. Issues orders through the same command API
 // as the player.
-import { BUILDINGS, DIFFICULTY, MAX_LEVEL, SETTLEMENTS, trainableAt, UNITS } from '../core/config';
+import {
+  BUILDINGS, DIFFICULTY, MAX_LEVEL, SETTLEMENTS, SIEGE_UNITS, trainableAt, UNITS
+} from '../core/config';
 import type { Building, Difficulty, NodeKind, ResType, Unit, UnitTypeId } from '../core/types';
 import { RES_OF_NODE } from '../core/types';
 import { dist, dist2 } from '../core/utils';
@@ -20,6 +22,8 @@ export class AIController {
   private defendUntil = 0;
   private attackers: number[] = [];
   private wonderRushAt = 0;
+  private nextClaimAt = 180;
+  private claimers: number[] = [];
 
   constructor(private world: World, difficulty: Difficulty) {
     this.diff = DIFFICULTY[difficulty];
@@ -61,6 +65,7 @@ export class AIController {
       }
       return;
     }
+    this.claimForts(military);
     this.offense(tc, military);
   }
 
@@ -261,6 +266,12 @@ export class AIController {
       const dir = Math.atan2(w.tcPos[0].z - tc.z, w.tcPos[0].x - tc.x);
       if (place('tower', tc.x + Math.cos(dir) * 9, tc.z + Math.sin(dir) * 9)) return;
     }
+    // Siege workshop — once the player fortifies, or late enough that the
+    // town centers themselves are the problem.
+    if (p.level >= 3 && has('siegeworks') === 0 && p.res.wood >= 150 && p.res.stone >= 100 &&
+        (this.playerFortifications() >= 2 || t > 620)) {
+      if (place('siegeworks', tc.x - 5, tc.z + 7)) return;
+    }
     // Monument when rich (hard mode flex)
     if (p.level >= 4 && t > 500 && has('monument') === 0 && p.res.stone > 160 && p.res.gold > 180) {
       if (place('monument', tc.x - 7, tc.z - 6)) return;
@@ -304,16 +315,32 @@ export class AIController {
     return null;
   }
 
+  /** How much stone the player has put between the AI and their town. */
+  private playerFortifications(): number {
+    let n = 0;
+    for (const b of this.world.buildings.values()) {
+      if (b.owner !== 0) continue;
+      if (b.type === 'tower') n += 1;
+      else if (b.type === 'wall') n += 0.15;   // a wall matters as a line, not a brick
+    }
+    return n;
+  }
+
   // ---------------- military ----------------
   private trainMilitary(buildings: Building[], armySize: number) {
     const w = this.world;
     const p = w.players[OWNER];
     const cap = Math.min(18, 5 + this.waveN * 3);
     if (armySize >= cap) return;
+    const siegeCount = [...w.units.values()]
+      .filter(u => u.owner === OWNER && SIEGE_UNITS.has(u.type)).length;
     for (const b of buildings) {
       if (!b.built || !BUILDINGS[b.type].trains) continue;
       if (b.type === 'towncenter' || b.type === 'dock') continue;
       if (b.queue.length >= 2) continue;
+      // Siege is a specialist tool, not a doctrine: keep a couple, no more.
+      // They are slow and pop-hungry, and a wave of them alone would just die.
+      if (b.type === 'siegeworks' && (siegeCount >= 2 || armySize < 6)) continue;
       const options = trainableAt(p.faction, b.type, p.level).filter(u => u !== 'boat');
       if (options.length === 0) continue;
       // Prefer elites when affordable, fall back to basics if that fails
@@ -328,9 +355,36 @@ export class AIController {
     }
   }
 
+  /**
+   * Ruined forts are worth holding, so the AI holds them. It only spares a
+   * couple of soldiers and only once it has an army to spare — a fort is not
+   * worth losing the war over, but leaving them all to the player would make
+   * the whole objective a gift.
+   */
+  private claimForts(military: Unit[]) {
+    const w = this.world;
+    if (w.time < this.nextClaimAt || military.length < 6) return;
+    this.nextClaimAt = w.time + 45;
+    const free = military.filter(u => !this.claimers.includes(u.id) && !SIEGE_UNITS.has(u.type));
+    if (free.length < 3) return;
+    for (const site of w.sites) {
+      if (site.kind !== 'outpost' || site.state === 'cleared' || site.holder === OWNER) continue;
+      // send the two nearest spare soldiers to stand in it
+      const squad = free
+        .sort((a, b) => dist2(a.x, a.z, site.x, site.z) - dist2(b.x, b.z, site.x, site.z))
+        .slice(0, 2);
+      if (squad.length === 0) return;
+      const ids = squad.map(u => u.id);
+      this.claimers = ids;
+      w.cmdMove(ids, site.x, site.z, true);
+      return;
+    }
+  }
+
   private offense(tc: Building, military: Unit[]) {
     const w = this.world;
     this.attackers = this.attackers.filter(id => w.units.has(id));
+    this.claimers = this.claimers.filter(id => w.units.has(id));
     const waveSize = this.diff.waveBase + this.diff.waveGrow * this.waveN;
     const ready = military.length;
     const timeUp = w.time >= this.nextWaveAt;

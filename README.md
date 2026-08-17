@@ -48,7 +48,7 @@ of the game.
 | I — Camp | — | House, Farm, Storehouse, Dock, Villagers, Fishing Boats |
 | II — Hamlet | 100 food | Barracks, Wall, Garden, Spearman |
 | III — Village | 190 food, 80 wood | Archery Range, Market, Shrine, Statue, Plaza, Archer, Trade Cart, The Wheel |
-| IV — Town | 300 food, 100 gold | Elite unit, Watch Tower, Academy, Forum, extra Town Centers, Masonry, Bronze Arms, Irrigation, Medicine |
+| IV — Town | 300 food, 100 gold | Elite unit, **Siege Workshop**, Watch Tower, Academy, Forum, extra Town Centers, Masonry, Bronze Arms, Irrigation, Medicine |
 | V — City | 460 food, 190 gold, 100 stone | Temple, Amphitheater, Lighthouse, Monument, Coinage, Logistics |
 | VI — Metropolis | 650 food, 320 gold, 200 stone | **The Wonder**, Hardened Shields |
 
@@ -56,6 +56,40 @@ Every level also rebuilds your skyline. Tents give way to timber halls, timber
 to stone, and standing buildings grow a little taller and richer with every
 step — gaining painted trim, planters, banners, gold, braziers and marble as
 your status rises.
+
+### Counters, armor and siege
+
+Army composition decides fights. Every attack carries a **damage type** and every
+target has a **class**, and the two are matched against a table of bonuses:
+
+| Unit | Strong against |
+| --- | --- |
+| Spearman | Cavalry (+8), Siege (+4) — a braced spear guts a chariot in five thrusts |
+| Archer | Infantry (+2), Siege (+3) |
+| War Chariot | Archers (+5), Siege (+4) |
+| Hoplite | Siege (+5), Cavalry (+3) |
+| Legionary | Siege (+4), Buildings (+3) |
+| Battering Ram | Buildings (+46) — and almost nothing else |
+| Catapult | Buildings (+18), plus splash on everything nearby |
+
+Armor comes in two channels. **Melee armor** soaks blades; **pierce armor** soaks
+arrows. A Hoplite's bronze (3 melee, 0 pierce) turns a spearman's thrust into a
+scratch and does nothing at all about massed archers — so the answer to a phalanx
+is a volley, and the answer to archers is anything with a horse.
+
+Buildings carry armor too, and this is what makes siege necessary: stone shrugs
+off blades and arrows, but **siege damage ignores building armor entirely**.
+
+- **Battering Ram** — slow, 4 pierce armor, shatters walls and town centers.
+  Utterly helpless against troops: keep it escorted, because five spearmen will
+  chop one down in about twenty seconds.
+- **Catapult** — range 11, which outreaches a Watch Tower's 8.5. It will stand
+  off and break the tower without taking a single arrow. Its shot is lobbed,
+  so it misses runners, and the blast **damages your own units too** (at half
+  rate) — do not park your infantry on the target.
+
+The short version: siege beats buildings, everything beats siege, and the tower
+you could once ignore now needs an answer.
 
 ### The city
 
@@ -66,6 +100,8 @@ your status rises.
   enemies still have to break them down.
 - **Shrine → Temple** — heals nearby units; upgrade it in place for a far
   stronger aura. Research **Medicine** to double it.
+- **Siege Workshop** *(Town)* — engineers build Battering Rams and
+  Catapults. The way through a fortified town.
 - **Amphitheater** — while it stands, all your units deal +30% damage.
 - **Academy** — researches Irrigation, Medicine, Coinage and Logistics.
 - **Forum** — unlocks the labor pool: idle villagers are assigned work
@@ -77,6 +113,10 @@ your status rises.
 
 Placement is deliberate now: tap to move the ghost, rotate it (⟳ or **R**),
 then confirm with **Build** (walls still place instantly, tap-tap-tap).
+
+Tap the **settlement chip** in the top right to open **the tech tree** — all
+six levels side by side with what each unlocks, what everything costs, and what
+you have already researched. Worth a look before paying for the next level.
 
 ### The wilds
 
@@ -102,6 +142,12 @@ lifts; walking up to one is what springs it.
   can carry it, the carrier is marked on the minimap, and if they fall it drops
   where they died — for anyone to take. Enshrine it at a Town Center for a
   permanent trickle of gold.
+- **Ruined forts** — derelicts of some older war, standing between the two
+  towns. Unlike every other site these are never *spent*: stand in one with no
+  enemy in the yard and you claim it, and it can be taken and retaken all match.
+  A held fort watches a wide circle of country and serves as a forward drop-off
+  for your gatherers. Both sides in the yard at once and the claim stalls —
+  which is the point. The rival wants them too.
 
 Soldiers and towers ignore grazing animals and the huddled — the wilds only
 draw steel when the wilds draw first.

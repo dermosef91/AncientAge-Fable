@@ -36,6 +36,7 @@ export class Encounters {
         case 'cache': this.stepCache(site); break;
         case 'refugees': this.stepRefugees(site); break;
         case 'relic': this.stepRelic(site); break;
+        case 'outpost': this.stepOutpost(site); break;
       }
     }
   }
@@ -261,6 +262,60 @@ export class Encounters {
       if (site.timer > 0) w.grantBoon(0, 'gratitude');
       w.emit({ t: 'siteCleared', kind: 'refugees', x: site.x, z: site.z, owner: 0 });
     }
+  }
+
+  // ---------------- ruined forts ----------------
+  /**
+   * A fort is claimed by standing in it. One side alone in the yard makes
+   * progress; both sides at once and the claim stalls, which is what turns
+   * these into somewhere to fight rather than somewhere to walk.
+   *
+   * Unlike every other site this one never resolves: it can be taken and
+   * retaken all match, so the midfield stays worth holding.
+   */
+  private stepOutpost(site: EncounterSite) {
+    const w = this.world;
+    const fort = w.buildings.get(site.buildingId);
+    if (!fort) { site.state = 'cleared'; return; }   // someone razed it
+
+    let present = -1, contested = false;
+    for (const u of w.units.values()) {
+      if (u.owner > 1 || u.water) continue;
+      if (dist2(u.x, u.z, site.x, site.z) > ENC.captureR * ENC.captureR) continue;
+      if (present < 0) present = u.owner;
+      else if (present !== u.owner) { contested = true; break; }
+    }
+
+    if (contested || present < 0 || present === site.holder) {
+      // nobody claiming: the current effort slips back toward neutral
+      if (!contested && site.capture > 0) {
+        site.capture = Math.max(0, site.capture - ENC.captureDecay * SCAN / ENC.captureTime);
+        if (site.capture === 0) site.claimant = -1;
+      }
+      return;
+    }
+
+    if (site.claimant !== present) { site.claimant = present; site.capture = 0; }
+    site.capture += SCAN / ENC.captureTime;
+    if (site.capture < 1) return;
+
+    // taken
+    const prev = site.holder;
+    site.holder = present;
+    site.capture = 0;
+    site.claimant = -1;
+    w.reassignBuilding(fort, present);
+    if (present === 0) {
+      w.markExplored(site.x, site.z, ENC.outpostVision);
+      w.emit({
+        t: 'toast', owner: 0,
+        msg: prev === 1 ? 'You take the ruined fort back' : 'The ruined fort is yours', kind: 'good'
+      });
+    } else if (prev === 0) {
+      w.emit({ t: 'toast', owner: 0, msg: 'The rival has taken your ruined fort', kind: 'warn' });
+      w.emit({ t: 'ping', x: site.x, z: site.z, color: '#e05a44' });
+    }
+    w.emit({ t: 'siteCleared', kind: 'outpost', x: site.x, z: site.z, owner: present });
   }
 
   // ---------------- the Golden Idol ----------------

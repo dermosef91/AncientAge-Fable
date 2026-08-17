@@ -1,10 +1,13 @@
-// HUD: resource bar, age chip, objectives, selection panel with unit stats,
+// HUD: resource bar, settlement chip, objectives, selection panel with unit stats,
 // context actions, the build menu, toasts and the pause menu.
 import {
-  BOONS, BUILD_MENU, BUILD_MENU_WIDE, BUILDINGS, ENC, MARKET_BUY_GOLD, MARKET_LOT,
-  MARKET_SELL_GOLD, MAX_LEVEL, RES_ORDER, SETTLEMENTS, TECHS, trainableAt, UNITS, WILDS, type Cost
+  ARMOR_CLASS_NAME, BOONS, BUILD_MENU, BUILD_MENU_WIDE, BUILDINGS, ENC, MARKET_BUY_GOLD,
+  MARKET_LOT, MARKET_SELL_GOLD, MAX_LEVEL, RES_ORDER, SETTLEMENTS, TECHS, trainableAt, UNITS,
+  WILDS, type Cost
 } from '../core/config';
-import type { Building, BuildingTypeId, ResType, SimEvent, UnitTypeId } from '../core/types';
+import type {
+  ArmorClass, Building, BuildingTypeId, ResType, SimEvent, UnitTypeId
+} from '../core/types';
 import { RES_OF_NODE } from '../core/types';
 import { fmtNum, fmtTime } from '../core/utils';
 import { buildingThumb, thumbImg, unitThumb } from '../render/thumbnails';
@@ -13,6 +16,7 @@ import type { World } from '../sim/world';
 import type { GameView } from '../render/view';
 import { bindFullscreenButton, fullscreenSupported } from './fullscreen';
 import { icon } from './icons';
+import { openTechTree } from './techtree';
 import type { InputController } from './input';
 import type { Minimap } from './minimap';
 
@@ -28,6 +32,37 @@ export interface HudCallbacks {
   onRestart: () => void;
   onQuit: () => void;
   setPaused: (p: boolean) => void;
+}
+
+/**
+ * "Strong vs" line for the selection panel — the whole counter system is
+ * invisible unless the unit tells you what it is for.
+ */
+function counterHtml(type: UnitTypeId): string {
+  const bonus = UNITS[type].bonus;
+  if (!bonus) return '';
+  const names = (Object.keys(bonus) as ArmorClass[])
+    .filter(k => (bonus[k] ?? 0) > 0)
+    .sort((a, b) => (bonus[b] ?? 0) - (bonus[a] ?? 0))
+    .map(k => ARMOR_CLASS_NAME[k]);
+  if (names.length === 0) return '';
+  return `<div class="counters" title="Deals bonus damage to these targets">
+    <span class="ck">Strong vs</span> ${names.join(' · ')}</div>`;
+}
+
+/**
+ * A ruined fort's line in the selection panel. Who holds it, and how far along
+ * anyone standing in it has got — the capture is invisible without this.
+ */
+function outpostStatus(w: World, b: Building): string {
+  const site = w.sites.find(s => s.buildingId === b.id);
+  const held = b.owner === 0 ? 'Yours' : b.owner === 1 ? 'Held by the rival' : 'Unclaimed';
+  if (!site) return held;
+  if (site.capture > 0) {
+    const who = site.claimant === 0 ? 'You are claiming it' : 'The rival is claiming it';
+    return `${held} — ${who}, ${Math.floor(site.capture * 100)}%`;
+  }
+  return `${held} — stand in it with no enemy present to claim it`;
 }
 
 /** Cost line: small resource icons followed by their amounts. */
@@ -56,6 +91,7 @@ export class HUD {
   private idleBtn!: HTMLElement;
   private sideRail!: HTMLElement;
   private menuModal: HTMLElement | null = null;
+  private techTree: HTMLElement | null = null;
   private unbindFullscreen: (() => void) | null = null;
   private resEls: Record<string, HTMLElement> = {};
   private objectives: Objective[] = [];
@@ -108,6 +144,9 @@ export class HUD {
     this.levelChip.innerHTML =
       `<span class="lvl-badge">I</span>
        <span class="lvl-text"><b class="lvl-name">Camp</b><i class="lvl-clock">00:00</i></span>`;
+    // The settlement levels *are* the tech tree, so the chip is where it lives.
+    this.levelChip.title = 'What each settlement level unlocks';
+    this.levelChip.onclick = () => { this.sound.button(); this.openTechTree(); };
     if (fullscreenSupported()) {
       const fsBtn = this.el('button', '', tr, 'fullscreen-btn') as HTMLButtonElement;
       this.unbindFullscreen = bindFullscreenButton(
@@ -354,11 +393,12 @@ export class HUD {
             <span class="status">${status}</span></div>
           <div class="statrow">
             <span title="Attack">ATK <b>${s.atk.toFixed(0)}</b></span>
-            <span title="Armor">ARM <b>${s.armor}</b></span>
+            <span title="Melee armor / pierce armor">ARM <b>${s.meleeArmor}/${s.pierceArmor}</b></span>
             <span title="Range">RNG <b>${def.range > 0 ? def.range.toFixed(1) : '1'}</b></span>
             <span title="Speed">SPD <b>${s.speed.toFixed(1)}</b></span>
             ${carryTxt}
           </div>
+          ${counterHtml(u.type)}
           <div class="hpbar"><div data-hp style="width:${(u.hp / u.maxHp) * 100}%"></div>
             <span class="hptext" data-hptext>${Math.ceil(u.hp)}/${u.maxHp}</span></div>
         </div>`;
@@ -370,6 +410,7 @@ export class HUD {
       let sub = def.desc;
       if (!bld.built) sub = `Under construction — <span data-prog>${Math.floor(bld.progress * 100)}%</span>`;
       else if (def.farm) sub = bld.withered ? 'Withered — needs wood to reseed' : `${Math.floor(bld.farmFood)} food remaining`;
+      else if (bld.type === 'outpost') sub = outpostStatus(w, bld);
       else if (def.trains && !enemy) sub = 'Tap the ground to set a rally point';
       html += `<div class="portrait">${thumbImg(buildingThumb(bld.type, w.players[bld.owner].faction, w.players[bld.owner].level), 'pthumb')}</div>
         <div class="info">
@@ -871,6 +912,17 @@ export class HUD {
     overlay.addEventListener('click', e => { if (e.target === overlay) this.closeMenu(); });
     this.root.appendChild(overlay);
     this.menuModal = overlay;
+  }
+
+  /** The tech tree screen, opened from the settlement chip. Pauses while it is up. */
+  private openTechTree() {
+    if (this.techTree) return;
+    this.cb.setPaused(true);
+    this.techTree = openTechTree(this.world, () => {
+      this.techTree = null;
+      this.cb.setPaused(false);
+    });
+    this.root.appendChild(this.techTree);
   }
 
   private closeMenu() {

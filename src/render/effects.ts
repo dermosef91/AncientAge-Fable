@@ -141,6 +141,23 @@ export class Particles {
   splash(x: number, z: number) {
     this.burst(x, 0.05, z, 6, 0xbfe8ea, { speed: 0.9, up: 1.3, life: 0.5, size: 0.14, grav: 3.4 });
   }
+  /**
+   * The dust a falling building pushes out along the ground: low, wide and
+   * fast, so it reads as displaced air rather than another explosion.
+   */
+  collapseRing(x: number, z: number, size: number, strength = 1) {
+    const n = Math.round(10 + size * 4) * strength;
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = (1.6 + Math.random() * 2.2) * (0.5 + size * 0.22);
+      this.spawn(
+        x + Math.cos(a) * size * 0.4, 0.06 + Math.random() * 0.25, z + Math.sin(a) * size * 0.4,
+        Math.cos(a) * sp, 0.25 + Math.random() * 0.5, Math.sin(a) * sp,
+        0.9 + Math.random() * 0.8, 0.3 + Math.random() * 0.22, 0xc9bb9a, 0.55
+      );
+    }
+  }
+
   /** A single spark riding a fire's updraft (negative gravity = it climbs). */
   ember(x: number, y: number, z: number) {
     this.spawn(
@@ -149,6 +166,157 @@ export class Particles {
       0.7 + Math.random() * 0.7, 0.09 + Math.random() * 0.06,
       Math.random() < 0.4 ? 0xffe0a0 : 0xff9838, -0.35
     );
+  }
+}
+
+// ---------------------------------------------------------------- decals
+/**
+ * Ground marks: scorch where a building fell, blood where a soldier did.
+ *
+ * One pooled quad soup in a single draw call. Each quad samples the terrain at
+ * its own four corners, so a mark lies along a hillside instead of hovering
+ * over it, and fades out on its own.
+ */
+const MAX_DECALS = 96;
+
+const DECAL_VERT = `
+  attribute vec2 auv;
+  attribute float aalpha;
+  varying vec2 vUv;
+  varying vec3 vColor;
+  varying float vAlpha;
+  void main() {
+    vUv = auv;
+    vColor = color;
+    vAlpha = aalpha;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }`;
+
+// Soft-edged blot with a lumpy rim, so scorch marks are not tidy circles.
+const DECAL_FRAG = `
+  varying vec2 vUv;
+  varying vec3 vColor;
+  varying float vAlpha;
+  void main() {
+    float d = length(vUv);
+    if (d > 1.0) discard;
+    float ang = atan(vUv.y, vUv.x);
+    float rim = 0.78 + 0.13 * sin(ang * 3.0) + 0.07 * sin(ang * 7.0 + 1.7);
+    float a = smoothstep(rim, rim * 0.28, d);
+    if (a < 0.01) discard;
+    gl_FragColor = vec4(vColor, a * vAlpha);
+  }`;
+
+export class Decals {
+  mesh: THREE.Mesh;
+  private pos: Float32Array;
+  private col: Float32Array;
+  private uv: Float32Array;
+  private alpha: Float32Array;
+  private life = new Float32Array(MAX_DECALS);
+  private maxLife = new Float32Array(MAX_DECALS);
+  private peak = new Float32Array(MAX_DECALS);
+  private head = 0;
+  private geo = new THREE.BufferGeometry();
+  private dirty = false;
+
+  /** `groundY` samples terrain height so a mark follows the slope it lies on. */
+  constructor(private groundY: (x: number, z: number) => number) {
+    this.pos = new Float32Array(MAX_DECALS * 6 * 3);   // two triangles per quad
+    this.col = new Float32Array(MAX_DECALS * 6 * 3);
+    this.uv = new Float32Array(MAX_DECALS * 6 * 2);
+    this.alpha = new Float32Array(MAX_DECALS * 6);
+    for (let i = 0; i < MAX_DECALS * 6; i++) this.pos[i * 3 + 1] = -50;
+    // Corner uvs are fixed for every quad: two triangles over (-1,-1)..(1,1),
+    // wound counter-clockwise as seen from above so the quads face the sky and
+    // survive backface culling.
+    const corners = [[-1, -1], [1, 1], [1, -1], [-1, -1], [-1, 1], [1, 1]];
+    for (let q = 0; q < MAX_DECALS; q++) {
+      for (let v = 0; v < 6; v++) {
+        this.uv[(q * 6 + v) * 2] = corners[v][0];
+        this.uv[(q * 6 + v) * 2 + 1] = corners[v][1];
+      }
+    }
+    this.geo.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
+    this.geo.setAttribute('color', new THREE.BufferAttribute(this.col, 3));
+    this.geo.setAttribute('auv', new THREE.BufferAttribute(this.uv, 2));
+    this.geo.setAttribute('aalpha', new THREE.BufferAttribute(this.alpha, 1));
+    const mat = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      vertexColors: true,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
+      vertexShader: DECAL_VERT,
+      fragmentShader: DECAL_FRAG
+    });
+    this.mesh = new THREE.Mesh(this.geo, mat);
+    this.mesh.frustumCulled = false;
+    this.mesh.renderOrder = 3;   // over the ground, under units and particles
+  }
+
+  /**
+   * Lay a mark centred on (x, z). `life` is seconds until it has faded out;
+   * `peak` is its darkest opacity.
+   */
+  add(x: number, z: number, radius: number, color: number, life: number, peak = 0.55) {
+    const q = this.head;
+    this.head = (this.head + 1) % MAX_DECALS;
+    this.life[q] = life;
+    this.maxLife[q] = life;
+    this.peak[q] = peak;
+    const rot = Math.random() * Math.PI * 2;
+    const ca = Math.cos(rot) * radius, sa = Math.sin(rot) * radius;
+    // quad corners in world space, each lifted to its own patch of ground
+    const pts: [number, number][] = [
+      [x - ca + sa, z - sa - ca], [x + ca + sa, z + sa - ca],
+      [x + ca - sa, z + sa + ca], [x - ca - sa, z - sa + ca]
+    ];
+    const order = [0, 2, 1, 0, 3, 2];   // matches the corner winding above
+    const c = new THREE.Color(color);
+    for (let v = 0; v < 6; v++) {
+      const [px, pz] = pts[order[v]];
+      const i = (q * 6 + v) * 3;
+      this.pos[i] = px;
+      this.pos[i + 1] = this.groundY(px, pz) + 0.035;
+      this.pos[i + 2] = pz;
+      this.col[i] = c.r; this.col[i + 1] = c.g; this.col[i + 2] = c.b;
+    }
+    this.dirty = true;
+  }
+
+  update(dt: number) {
+    let any = false;
+    for (let q = 0; q < MAX_DECALS; q++) {
+      if (this.life[q] <= 0) continue;
+      this.life[q] -= dt;
+      const t = Math.max(0, this.life[q] / this.maxLife[q]);
+      // hold, then fade over the last third of the mark's life
+      const a = this.life[q] <= 0 ? 0 : this.peak[q] * Math.min(1, t / 0.34);
+      for (let v = 0; v < 6; v++) this.alpha[q * 6 + v] = a;
+      if (this.life[q] <= 0) {
+        for (let v = 0; v < 6; v++) this.pos[(q * 6 + v) * 3 + 1] = -50;
+        this.dirty = true;
+      }
+      any = true;
+    }
+    if (any || this.dirty) {
+      (this.geo.getAttribute('aalpha') as THREE.BufferAttribute).needsUpdate = true;
+    }
+    if (this.dirty) {
+      (this.geo.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
+      (this.geo.getAttribute('color') as THREE.BufferAttribute).needsUpdate = true;
+      this.dirty = false;
+    }
+  }
+
+  scorch(x: number, z: number, size: number) {
+    this.add(x, z, size * 0.62 + 0.5, 0x2b2118, 26, 0.52);
+  }
+  blood(x: number, z: number) {
+    this.add(x + (Math.random() - 0.5) * 0.3, z + (Math.random() - 0.5) * 0.3,
+      0.4 + Math.random() * 0.18, 0x6b1f14, 15, 0.5);
   }
 }
 
@@ -576,6 +744,15 @@ export function arrowGeo(): THREE.BufferGeometry {
   p.cone(0xd8d4c8, 0.03, 0.09, 0, 0, 0.28, { seg: 4, rx: Math.PI / 2 });
   p.box(0xe8e0cd, 0.05, 0.012, 0.09, 0, 0, -0.22);
   p.box(0xe8e0cd, 0.012, 0.05, 0.09, 0, 0, -0.22);
+  return p.build();
+}
+
+/** A catapult's shot: a rough, faceted stone. Orientation is irrelevant. */
+export function boulderGeo(): THREE.BufferGeometry {
+  const p = new Parts();
+  p.ico(0x8f8a80, 0.24, 0, 0, 0);
+  p.ico(0x7d786f, 0.19, 0.06, 0.05, -0.04, { shade: 0.94 });
+  p.ico(0x9a948a, 0.13, -0.07, -0.05, 0.06, { shade: 1.06 });
   return p.build();
 }
 

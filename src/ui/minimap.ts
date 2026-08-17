@@ -101,6 +101,20 @@ export class Minimap {
     // encounter sites still worth a march: smaller gold diamonds
     for (const site of w.sites) {
       if (!site.discovered || site.state === 'cleared') continue;
+      if (site.kind === 'outpost') {
+        // a fort is a hold, not an errand: square, and coloured by who has it
+        const fill = site.holder === 0 ? '#7fe89a' : site.holder === 1 ? '#f06a55' : '#cfc3a4';
+        ctx.fillStyle = fill;
+        ctx.fillRect(site.x * s - 2.6, site.z * s - 2.6, 5.2, 5.2);
+        ctx.strokeStyle = 'rgba(42,31,12,0.9)';
+        ctx.lineWidth = 1.2;
+        ctx.strokeRect(site.x * s - 2.6, site.z * s - 2.6, 5.2, 5.2);
+        if (site.capture > 0) {
+          ctx.fillStyle = site.claimant === 0 ? '#eafff0' : '#ff8872';
+          ctx.fillRect(site.x * s - 2.6, site.z * s + 2.6, 5.2 * site.capture, 1.4);
+        }
+        continue;
+      }
       diamond(site.x, site.z, 1.9, site.kind === 'relic' ? '#ffe08a' : '#d8a94e');
     }
     // units
