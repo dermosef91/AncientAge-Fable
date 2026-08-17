@@ -88,10 +88,10 @@ export interface Unit {
 }
 
 export interface QueueItem {
-  kind: 'unit' | 'research' | 'age' | 'upgrade';
+  kind: 'unit' | 'research' | 'level' | 'upgrade';
   unit?: UnitTypeId;
   tech?: string;
-  age?: number;   // target age index
+  level?: number; // target settlement level index
   to?: BuildingTypeId; // upgrade target (e.g. shrine -> temple)
   t: number;      // elapsed
   total: number;  // needed
@@ -155,7 +155,7 @@ export type SimEvent =
   | { t: 'built'; id: number; owner: number; bType: BuildingTypeId; x: number; z: number }
   | { t: 'trained'; owner: number; unitType: UnitTypeId }
   | { t: 'research'; owner: number; tech: string }
-  | { t: 'age'; owner: number; age: number }
+  | { t: 'levelup'; owner: number; level: number }
   | { t: 'deposit'; owner: number; res: ResType; amount: number; x: number; z: number }
   | { t: 'gatherTick'; nodeId: number; kind: NodeKind; x: number; z: number }
   | { t: 'nodeDepleted'; nodeId: number; kind: NodeKind; x: number; z: number }
@@ -190,7 +190,7 @@ export interface PlayerState {
   techs: Set<string>;
   stats: PlayerStats;
   gatherMul: number; // AI difficulty handicap/bonus
-  age: number;       // index into AGES
+  level: number;     // settlement level, index into SETTLEMENTS
   /** Completed buildings by type — powers aura effects (amphitheater, lighthouse, forum). */
   built: Partial<Record<BuildingTypeId, number>>;
   /** Labor pool (forum): auto-assign idle villagers by these weights. */

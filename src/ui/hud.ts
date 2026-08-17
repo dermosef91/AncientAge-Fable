@@ -1,8 +1,8 @@
 // HUD: resource bar, age chip, objectives, selection panel with unit stats,
 // context actions, the build menu, toasts and the pause menu.
 import {
-  AGES, BOONS, BUILD_MENU, BUILD_MENU_WIDE, BUILDINGS, ENC, MARKET_BUY_GOLD, MARKET_LOT,
-  MARKET_SELL_GOLD, MAX_AGE, RES_ORDER, TECHS, trainableAt, UNITS, WILDS, type Cost
+  BOONS, BUILD_MENU, BUILD_MENU_WIDE, BUILDINGS, ENC, MARKET_BUY_GOLD, MARKET_LOT,
+  MARKET_SELL_GOLD, MAX_LEVEL, RES_ORDER, SETTLEMENTS, TECHS, trainableAt, UNITS, WILDS, type Cost
 } from '../core/config';
 import type { Building, BuildingTypeId, ResType, SimEvent, UnitTypeId } from '../core/types';
 import { RES_OF_NODE } from '../core/types';
@@ -48,7 +48,7 @@ export class HUD {
   private buildSheet!: HTMLElement;
   private placeHint!: HTMLElement;
   private toastsEl!: HTMLElement;
-  private ageChip!: HTMLElement;
+  private levelChip!: HTMLElement;
   private wonderBanner!: HTMLElement;
   private boonsEl!: HTMLElement;
   private offerEl!: HTMLElement;
@@ -102,12 +102,12 @@ export class HUD {
     this.resEls.pop = pop.querySelector('.val')!;
     this.resEls.popChip = pop;
 
-    // ---- top-right age + menu
+    // ---- top-right settlement status + menu
     const tr = this.el('div', 'top-right', this.root);
-    this.ageChip = this.el('div', 'age-chip', tr);
-    this.ageChip.innerHTML =
-      `<span class="age-badge">I</span>
-       <span class="age-text"><b class="age-name">Stone Age</b><i class="age-clock">00:00</i></span>`;
+    this.levelChip = this.el('div', 'settlement-chip', tr);
+    this.levelChip.innerHTML =
+      `<span class="lvl-badge">I</span>
+       <span class="lvl-text"><b class="lvl-name">Camp</b><i class="lvl-clock">00:00</i></span>`;
     if (fullscreenSupported()) {
       const fsBtn = this.el('button', '', tr, 'fullscreen-btn') as HTMLButtonElement;
       this.unbindFullscreen = bindFullscreenButton(
@@ -175,10 +175,10 @@ export class HUD {
       { id: 'food', label: 'Gather food', target: 60, done: false, progress: () => p.stats.gathered.food },
       { id: 'house', label: 'Build a House', target: 1, done: false, progress: () => count(b => b.type === 'house' && b.built) },
       { id: 'vils', label: 'Train villagers', target: 6, done: false, progress: () => unitCount(t => t === 'villager') },
-      { id: 'tool', label: 'Reach the Tool Age', target: 1, done: false, progress: () => (p.age >= 1 ? 1 : 0) },
+      { id: 'hamlet', label: 'Grow into a Hamlet', target: 1, done: false, progress: () => (p.level >= 1 ? 1 : 0) },
       { id: 'barracks', label: 'Build a Barracks', target: 1, done: false, progress: () => count(b => (b.type === 'barracks' || b.type === 'range') && b.built) },
       { id: 'army', label: 'Train soldiers', target: 6, done: false, progress: () => unitCount(t => t !== 'villager' && t !== 'boat') },
-      { id: 'bronze', label: 'Reach the Bronze Age', target: 1, done: false, progress: () => (p.age >= 2 ? 1 : 0) },
+      { id: 'town', label: 'Grow into a Town', target: 1, done: false, progress: () => (p.level >= 3 ? 1 : 0) },
       { id: 'win', label: 'Raze their town — or raise a Wonder', target: 1, done: false, progress: () => 0 }
     ];
     this.renderObjectives();
@@ -231,13 +231,13 @@ export class HUD {
     const w = this.world;
     const p = w.players[0];
     const faction = p.faction;
-    const sig = `${p.age}|${faction}|${RES_ORDER.map(r => Math.floor(p.res[r] / 5)).join(',')}`;
+    const sig = `${p.level}|${faction}|${RES_ORDER.map(r => Math.floor(p.res[r] / 5)).join(',')}`;
     if (sig === this.buildSig) return;
     this.buildSig = sig;
 
     const card = (bt: BuildingTypeId, wide: boolean) => {
       const def = BUILDINGS[bt];
-      const locked = p.age < def.age;
+      const locked = p.level < def.level;
       const cost = w.buildingCost(0, bt);
       const afford = w.canAfford(0, cost);
       const cls = ['build-card'];
@@ -245,10 +245,10 @@ export class HUD {
       if (locked) cls.push('locked');
       else if (!afford) cls.push('unaffordable');
       const meta = locked
-        ? `<span class="breq">${icon('lock', 12)}${AGES[def.age].name}</span>`
+        ? `<span class="breq">${icon('lock', 12)}${SETTLEMENTS[def.level].name}</span>`
         : `<span class="bcost">${costHtml(cost)}</span>`;
       return `<button class="${cls.join(' ')}" data-bt="${bt}" title="${def.desc}">
-          <span class="bthumb-wrap">${thumbImg(buildingThumb(bt, faction, p.age), 'bthumb')}</span>
+          <span class="bthumb-wrap">${thumbImg(buildingThumb(bt, faction, p.level), 'bthumb')}</span>
           <span class="bmeta"><span class="bname">${def.name}</span>${meta}</span>
         </button>`;
     };
@@ -262,9 +262,9 @@ export class HUD {
       el.onclick = () => {
         const bt = el.dataset.bt as BuildingTypeId;
         const def = BUILDINGS[bt];
-        if (p.age < def.age) {
+        if (p.level < def.level) {
           this.sound.error();
-          this.toast(`${def.name} requires the ${AGES[def.age].name}`, 'warn');
+          this.toast(`${def.name} requires a ${SETTLEMENTS[def.level].name}`, 'warn');
           return;
         }
         this.sound.button();
@@ -371,7 +371,7 @@ export class HUD {
       if (!bld.built) sub = `Under construction — <span data-prog>${Math.floor(bld.progress * 100)}%</span>`;
       else if (def.farm) sub = bld.withered ? 'Withered — needs wood to reseed' : `${Math.floor(bld.farmFood)} food remaining`;
       else if (def.trains && !enemy) sub = 'Tap the ground to set a rally point';
-      html += `<div class="portrait">${thumbImg(buildingThumb(bld.type, w.players[bld.owner].faction, w.players[bld.owner].age), 'pthumb')}</div>
+      html += `<div class="portrait">${thumbImg(buildingThumb(bld.type, w.players[bld.owner].faction, w.players[bld.owner].level), 'pthumb')}</div>
         <div class="info">
           <div class="name">${def.name}${tag}</div>
           <div class="sub">${sub}</div>
@@ -441,7 +441,7 @@ export class HUD {
         b.queue.forEach((q, i) => {
           const art = q.kind === 'unit'
             ? thumbImg(unitThumb(q.unit!, faction), 'qthumb')
-            : q.kind === 'age' ? `<span class="qage">${AGES[q.age!].numeral}</span>`
+            : q.kind === 'level' ? `<span class="qlvl">${SETTLEMENTS[q.level!].numeral}</span>`
             : icon(TECHS[q.tech!].icon, 20);
           const pct = i === 0 ? (q.t / q.total) * 100 : 0;
           html += `<button class="qslot" data-qi="${i}" title="Cancel">${art}<span class="prog" style="width:${pct}%"></span></button>`;
@@ -480,7 +480,7 @@ export class HUD {
     const sig = [
       vils.length > 0, mil.length > 0, workers.length > 0, carts.length > 0, holdOn,
       ownBld ? ownBld.id + ownBld.type + (ownBld.built ? 'b' : 'c') : '',
-      this.input.mode, p.techs.size, p.age, p.laborOn
+      this.input.mode, p.techs.size, p.level, p.laborOn
     ].join('|');
     if (sig === this.actionsSig) { this.updateActionAfford(); return; }
     this.actionsSig = sig;
@@ -549,7 +549,7 @@ export class HUD {
     if (ownBld) {
       const b = ownBld;
       if (b.built) {
-        for (const ut of trainableAt(p.faction, b.type, p.age)) {
+        for (const ut of trainableAt(p.faction, b.type, p.level)) {
           const def = UNITS[ut];
           addBtn(thumbImg(unitThumb(ut, p.faction), 'act-thumb'), def.short, {
             cost: costHtml(def.cost, 11),
@@ -561,19 +561,19 @@ export class HUD {
             }
           });
         }
-        // Age advance lives at the town center
-        if (b.type === 'towncenter' && p.age < MAX_AGE) {
-          const next = AGES[p.age + 1];
-          const queued = b.queue.some(q => q.kind === 'age');
+        // Settlement growth lives at the town center
+        if (b.type === 'towncenter' && p.level < MAX_LEVEL) {
+          const next = SETTLEMENTS[p.level + 1];
+          const queued = b.queue.some(q => q.kind === 'level');
           if (!queued) {
-            addBtn(icon('age', 22), next.name.split(' ')[0], {
+            addBtn(icon('age', 22), next.name, {
               cost: costHtml(next.cost, 11),
               cls: 'primary',
-              key: 'age',
+              key: 'level',
               onClick: () => {
-                if (w.startAge(b.id)) {
+                if (w.startLevelUp(b.id)) {
                   this.sound.research();
-                  this.toast(`Advancing to the ${next.name}`, 'good');
+                  this.toast(`Growing into a ${next.name}`, 'good');
                 } else this.sound.error();
                 this.refreshSelectionUI();
               }
@@ -584,7 +584,7 @@ export class HUD {
           const tech = TECHS[tid];
           if (tech.at !== b.type) continue;
           if (p.techs.has(tid)) continue;
-          if (p.age < tech.age) continue;
+          if (p.level < tech.level) continue;
           if (b.queue.some(q => q.tech === tid)) continue;
           addBtn(icon(tech.icon, 22), tech.name.split(' ')[0], {
             cost: costHtml(tech.cost, 11),
@@ -597,7 +597,7 @@ export class HUD {
         }
         // In-place upgrade (shrine -> temple)
         const upTo = BUILDINGS[b.type].upgradesTo;
-        if (upTo && !b.queue.some(q => q.kind === 'upgrade') && p.age >= BUILDINGS[upTo].age) {
+        if (upTo && !b.queue.some(q => q.kind === 'upgrade') && p.level >= BUILDINGS[upTo].level) {
           addBtn(icon('upgrade', 22), BUILDINGS[upTo].name, {
             cost: costHtml(BUILDINGS[upTo].cost, 11),
             cls: 'primary',
@@ -685,8 +685,8 @@ export class HUD {
         ok = w.canAfford(0, def.cost) && p.popUsed + def.pop <= p.popCap;
       } else if (key.startsWith('tech:')) {
         ok = w.canAfford(0, TECHS[key.slice(5)].cost);
-      } else if (key === 'age') {
-        ok = p.age < MAX_AGE && w.canAfford(0, AGES[p.age + 1].cost);
+      } else if (key === 'level') {
+        ok = p.level < MAX_LEVEL && w.canAfford(0, SETTLEMENTS[p.level + 1].cost);
       } else if (key.startsWith('upg:')) {
         ok = w.canAfford(0, BUILDINGS[key.slice(4) as BuildingTypeId].cost);
       } else if (key.startsWith('sell:')) {
@@ -783,10 +783,10 @@ export class HUD {
         case 'research':
           if (e.owner === 0) this.toast(`${TECHS[e.tech].name} researched`, 'good');
           break;
-        case 'age':
+        case 'levelup':
           this.buildSig = '';
           this.actionsSig = '';
-          if (e.owner === 1) this.toast(`The enemy reaches the ${AGES[e.age].name}`, 'warn');
+          if (e.owner === 1) this.toast(`The enemy settlement grows into a ${SETTLEMENTS[e.level].name}`, 'warn');
           break;
         case 'built':
           if (e.owner === 0) this.toast(`${BUILDINGS[e.bType].name} complete`, 'good');
@@ -891,10 +891,10 @@ export class HUD {
     this.resEls.pop.textContent = `${p.popUsed}/${p.popCap}`;
     this.resEls.popChip.classList.toggle('full', p.popUsed >= p.popCap);
 
-    const age = AGES[p.age];
-    this.ageChip.querySelector('.age-badge')!.textContent = age.numeral;
-    this.ageChip.querySelector('.age-name')!.textContent = age.name;
-    this.ageChip.querySelector('.age-clock')!.textContent = fmtTime(w.time);
+    const lvl = SETTLEMENTS[p.level];
+    this.levelChip.querySelector('.lvl-badge')!.textContent = lvl.numeral;
+    this.levelChip.querySelector('.lvl-name')!.textContent = lvl.name;
+    this.levelChip.querySelector('.lvl-clock')!.textContent = fmtTime(w.time);
 
     const idle = w.idleVillagers(0).length;
     const badge = this.idleBtn.querySelector('.badge') as HTMLElement;

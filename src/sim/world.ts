@@ -1,8 +1,8 @@
 // World: all simulation state plus entity management and player commands.
 // Both the UI and the AI issue orders exclusively through these methods.
 import {
-  AGES, BOONS, BUILDINGS, CARRY_CAP, ENC, FACTIONS, FARM_FOOD, GATHER_RATE, MAP_H, MAP_W,
-  MARKET_BUY_GOLD, MARKET_LOT, MARKET_SELL_GOLD, MAX_AGE, NODE_AMOUNT, POP_MAX,
+  BOONS, BUILDINGS, CARRY_CAP, ENC, FACTIONS, FARM_FOOD, GATHER_RATE, MAP_H, MAP_W,
+  MARKET_BUY_GOLD, MARKET_LOT, MARKET_SELL_GOLD, MAX_LEVEL, NODE_AMOUNT, POP_MAX, SETTLEMENTS,
   TECHS, UNITS, WILDS, type Cost
 } from '../core/config';
 import type {
@@ -76,7 +76,7 @@ export class World {
       techs: new Set(),
       stats: { trained: 0, lost: 0, kills: 0, razed: 0, gathered: { food: 0, wood: 0, stone: 0, gold: 0 } },
       gatherMul,
-      age: 0,
+      level: 0,
       built: {},
       laborOn: false,
       laborWeights: { food: 0.4, wood: 0.3, gold: 0.2, stone: 0.1 },
@@ -117,13 +117,13 @@ export class World {
     return (this.players[owner].built[type] ?? 0) > 0;
   }
 
-  /** Is this building/unit/tech unlocked by the owner's current age? */
-  ageOk(owner: number, needed: number): boolean {
-    return this.players[owner].age >= needed;
+  /** Is this building/unit/tech unlocked by the owner's settlement level? */
+  levelOk(owner: number, needed: number): boolean {
+    return this.players[owner].level >= needed;
   }
 
-  nextAge(owner: number): number {
-    return Math.min(MAX_AGE, this.players[owner].age + 1);
+  nextLevel(owner: number): number {
+    return Math.min(MAX_LEVEL, this.players[owner].level + 1);
   }
 
   emit(e: SimEvent) { this.events.push(e); }
@@ -406,9 +406,9 @@ export class World {
 
   /** Player/AI places a construction site. Pays cost. */
   tryPlaceBuilding(owner: number, type: BuildingTypeId, cx: number, cz: number, rot = 0): Building | null {
-    if (!this.ageOk(owner, BUILDINGS[type].age)) {
+    if (!this.levelOk(owner, BUILDINGS[type].level)) {
       if (owner === 0) {
-        this.emit({ t: 'toast', owner, msg: `Requires the ${AGES[BUILDINGS[type].age].name}`, kind: 'warn' });
+        this.emit({ t: 'toast', owner, msg: `Requires a ${SETTLEMENTS[BUILDINGS[type].level].name}`, kind: 'warn' });
       }
       return null;
     }
@@ -531,9 +531,9 @@ export class World {
   startTrain(bId: number, type: UnitTypeId): boolean {
     const b = this.buildings.get(bId);
     if (!b || !b.built) return false;
-    if (!this.ageOk(b.owner, UNITS[type].age)) {
+    if (!this.levelOk(b.owner, UNITS[type].level)) {
       if (b.owner === 0) {
-        this.emit({ t: 'toast', owner: 0, msg: `Requires the ${AGES[UNITS[type].age].name}`, kind: 'warn' });
+        this.emit({ t: 'toast', owner: 0, msg: `Requires a ${SETTLEMENTS[UNITS[type].level].name}`, kind: 'warn' });
       }
       return false;
     }
@@ -558,24 +558,24 @@ export class World {
     return true;
   }
 
-  /** Begin advancing to the next age at a town center. */
-  startAge(bId: number): boolean {
+  /** Begin growing the settlement to the next level at a town center. */
+  startLevelUp(bId: number): boolean {
     const b = this.buildings.get(bId);
     if (!b || !b.built || b.type !== 'towncenter') return false;
     const p = this.players[b.owner];
-    const target = p.age + 1;
-    if (target > MAX_AGE) return false;
-    // only one age advance at a time, anywhere
+    const target = p.level + 1;
+    if (target > MAX_LEVEL) return false;
+    // only one settlement upgrade at a time, anywhere
     for (const other of this.buildings.values()) {
-      if (other.owner === b.owner && other.queue.some(q => q.kind === 'age')) return false;
+      if (other.owner === b.owner && other.queue.some(q => q.kind === 'level')) return false;
     }
-    const def = AGES[target];
+    const def = SETTLEMENTS[target];
     if (!this.canAfford(b.owner, def.cost)) {
       if (b.owner === 0) this.emit({ t: 'toast', owner: 0, msg: 'Not enough resources', kind: 'warn' });
       return false;
     }
     this.pay(b.owner, def.cost);
-    b.queue.push({ kind: 'age', age: target, t: 0, total: def.time });
+    b.queue.push({ kind: 'level', level: target, t: 0, total: def.time });
     return true;
   }
 
@@ -584,9 +584,9 @@ export class World {
     const tech = TECHS[techId];
     if (!b || !b.built || !tech) return false;
     const p = this.players[b.owner];
-    if (!this.ageOk(b.owner, tech.age)) {
+    if (!this.levelOk(b.owner, tech.level)) {
       if (b.owner === 0) {
-        this.emit({ t: 'toast', owner: 0, msg: `Requires the ${AGES[tech.age].name}`, kind: 'warn' });
+        this.emit({ t: 'toast', owner: 0, msg: `Requires a ${SETTLEMENTS[tech.level].name}`, kind: 'warn' });
       }
       return false;
     }
@@ -611,7 +611,7 @@ export class World {
       this.players[b.owner].popUsed -= UNITS[q.unit].pop;
     }
     if (q.kind === 'research' && q.tech) this.refund(b.owner, TECHS[q.tech].cost, 1);
-    if (q.kind === 'age' && q.age !== undefined) this.refund(b.owner, AGES[q.age].cost, 1);
+    if (q.kind === 'level' && q.level !== undefined) this.refund(b.owner, SETTLEMENTS[q.level].cost, 1);
     if (q.kind === 'upgrade' && q.to) this.refund(b.owner, BUILDINGS[q.to].cost, 1);
     b.queue.splice(idx, 1);
   }
@@ -623,9 +623,9 @@ export class World {
     const to = BUILDINGS[b.type].upgradesTo;
     if (!to) return false;
     const def = BUILDINGS[to];
-    if (!this.ageOk(b.owner, def.age)) {
+    if (!this.levelOk(b.owner, def.level)) {
       if (b.owner === 0) {
-        this.emit({ t: 'toast', owner: 0, msg: `Requires the ${AGES[def.age].name}`, kind: 'warn' });
+        this.emit({ t: 'toast', owner: 0, msg: `Requires a ${SETTLEMENTS[def.level].name}`, kind: 'warn' });
       }
       return false;
     }

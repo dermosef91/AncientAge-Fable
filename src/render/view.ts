@@ -7,11 +7,11 @@ import { clamp, lerp } from '../core/utils';
 import { heightAt, WATER_Y } from '../sim/map';
 import type { World } from '../sim/world';
 import {
-  assets, instantiateCharacter, LEFT_HAND, RIGHT_HAND, VILLAGER_CLIPS, type CharAsset
+  assets, instantiateCharacter, LEFT_HAND, RIGHT_HAND, SPINE, VILLAGER_CLIPS, type CharAsset
 } from './assets';
 import { arrowGeo, Fires, Flags, Markers, Particles } from './effects';
 import {
-  BUILDING_VIS_HEIGHT, buildingGeo, carryGeo, cropGeo, nodeGeo, rubbleGeo,
+  BUILDING_VIS_HEIGHT, buildingGeo, carryGeo, cropGeo, nodeGeo, packGeo, rubbleGeo,
   scaffoldGeo, toolGeo, unitGeo, weaponGeo, type ToolKind
 } from './models';
 import { MAT } from './parts';
@@ -26,9 +26,11 @@ interface UnitView {
   tool: THREE.Mesh | null;        // villager's working kit (axe, pick, basket…)
   toolKind: ToolKind | null;
   toolAnchor: THREE.Object3D;     // right hand on a rig, the group otherwise
+  pack: THREE.Mesh | null;        // back-basket worn on the timber/ore runs
+  packAnchor: THREE.Object3D;     // upper back on a rig, the group otherwise
   carry: THREE.Mesh | null;
   carryKind: NodeKind | null;
-  carryAnchor: THREE.Object3D;    // where a carried resource is parented
+  carryAnchor: THREE.Object3D;    // where a hand-carried resource is parented
   flashing: boolean;
   dying: number; // -1 = alive, else timer
   type: string;
@@ -57,7 +59,15 @@ interface ToolMount {
 const GRIP_X = Math.PI / 2;   // haft (+y) onto the palm's grip axis (+z)
 /** Loads drawn as a basket, which has to hang level however the arm moves. */
 const BASKET_LOADS = new Set<NodeKind>(['berries', 'fish', 'carcass']);
+/** Loads too heavy for a hand: these ride in the back-basket instead. */
+const PACK_LOADS = new Set<NodeKind>(['tree', 'stone', 'gold']);
+/** Jobs whose haul needs the pack, so it goes on with the tool. */
+const PACK_TOOLS = new Set<ToolKind>(['axe', 'pickaxe']);
 const UP_AXIS = new THREE.Vector3(0, 1, 0);
+/** Where the pack (and so its load) sits, in the villager's own metres. */
+const PACK_POS: [number, number, number] = [0, 0.015, 0];
+/** The same spot on the blockier procedural body. */
+const PACK_POS_PROC: [number, number, number] = [0, 0.62, 0];
 // A half turn puts every head, blade and hoop on the far side of the fist,
 // where it clears the arm instead of hiding behind it.
 const TOOL_MOUNT: Record<ToolKind, ToolMount> = {
@@ -79,7 +89,7 @@ interface BuildingView {
   withered: boolean;
   flashing: boolean;
   hasFlags: boolean;
-  tier: number;   // owner's age when the mesh was built — refreshed on age-up
+  tier: number;   // owner's settlement level when the mesh was built — refreshed on level-up
   burn: number;   // 0..1 how fiercely it is alight
   sootMat: THREE.MeshLambertMaterial | null;  // own material, smoke-stained while it burns
 }
@@ -503,9 +513,11 @@ export class GameView {
         }
       }
 
-      // working kit — the tool in hand follows the job the villager is on
+      // working kit — the tool in hand follows the job the villager is on,
+      // and the timber and ore runs put a back-basket on as well
       if (u.type === 'villager') {
         this.setTool(v, this.villagerTool(u, v));
+        this.setPack(v, v.toolKind !== null && PACK_TOOLS.has(v.toolKind));
         if (v.tool && !v.mixer && v.toolKind !== 'basket') {
           // the procedural villager has no clips: swing the tool by hand
           const working = (u.task.type === 'gather' || u.task.type === 'build' || u.task.type === 'farm') && !moving;
@@ -513,20 +525,24 @@ export class GameView {
         }
       }
 
-      // carry prop — rigged villagers hold it in their hand
+      // carry prop — food in a hand, timber and ore in the pack on the back
       const showCarry = u.carryAmt > w.carryCap(u.owner) * 0.35 && u.carryKind !== null;
       if (showCarry && v.carryKind !== u.carryKind) {
         if (v.carry) v.carry.removeFromParent();
         v.carry = new THREE.Mesh(carryGeo(u.carryKind!), MAT.main);
+        const inPack = PACK_LOADS.has(u.carryKind!);
         if (v.mixer) {
-          // parented to a hand bone, so undo the rig's own scale
+          // parented to a bone, so undo the rig's own scale
           const inv = v.propScale;
-          v.carry.scale.setScalar(inv * 0.9);
-          v.carry.position.set(0, 0.04 * inv, 0.06 * inv);
+          v.carry.scale.setScalar(inv * (inPack ? 1 : 0.9));
+          if (inPack) v.carry.position.set(...(PACK_POS.map(n => n * inv) as [number, number, number]));
+          else v.carry.position.set(0, 0.04 * inv, 0.06 * inv);
+        } else if (inPack) {
+          v.carry.position.set(...PACK_POS_PROC);
         } else {
-          v.carry.position.set(0, u.carryKind === 'tree' ? 0.62 : 0.88, u.carryKind === 'tree' ? 0.1 : 0);
+          v.carry.position.set(0, 0.88, 0);
         }
-        v.carryAnchor.add(v.carry);
+        (inPack ? v.packAnchor : v.carryAnchor).add(v.carry);
         v.carryKind = u.carryKind;
       }
       if (v.carry) v.carry.visible = showCarry;
@@ -595,6 +611,7 @@ export class GameView {
     this.scene.add(group);
     return {
       group, body, weapon, tool: null, toolKind: null, toolAnchor: group,
+      pack: null, packAnchor: group,
       carry: null, carryKind: null, carryAnchor: group,
       flashing: false, dying: -1, type: u.type, water: u.water,
       mixer: null, actions: null, clip: '', mats: [], propScale: 1
@@ -643,6 +660,8 @@ export class GameView {
       tool: null,
       toolKind: null,
       toolAnchor: bones.get(RIGHT_HAND) ?? left,
+      pack: null,
+      packAnchor: bones.get(SPINE) ?? root,
       carry: null,
       carryKind: null,
       carryAnchor: left,
@@ -695,6 +714,27 @@ export class GameView {
     mesh.parent.getWorldQuaternion(this.tmpQ).invert();
     this.tmpQ2.setFromAxisAngle(UP_AXIS, dir);
     mesh.quaternion.multiplyQuaternions(this.tmpQ, this.tmpQ2);
+  }
+
+  /** Strap the back-basket on (or take it off). */
+  private setPack(v: UnitView, wear: boolean) {
+    if (wear === (v.pack !== null)) return;
+    if (!wear) {
+      v.pack!.removeFromParent();
+      v.pack = null;
+      return;
+    }
+    const mesh = new THREE.Mesh(packGeo(), MAT.main);
+    mesh.castShadow = true;
+    if (v.mixer) {
+      const inv = v.propScale;
+      mesh.position.set(...(PACK_POS.map(n => n * inv) as [number, number, number]));
+      mesh.scale.setScalar(inv);
+    } else {
+      mesh.position.set(...PACK_POS_PROC);
+    }
+    v.packAnchor.add(mesh);
+    v.pack = mesh;
   }
 
   /** Fit (or clear) the tool in a villager's hand. */
@@ -803,7 +843,7 @@ export class GameView {
       if (!explored) continue;
 
       // every epoch dresses standing buildings up a little more
-      const tier = w.players[b.owner].age;
+      const tier = w.players[b.owner].level;
       if (v.tier !== tier) {
         v.tier = tier;
         v.mesh.geometry = buildingGeo(b.type, w.players[b.owner].faction, tier);
@@ -876,7 +916,7 @@ export class GameView {
   private createBuildingView(b: Building): BuildingView {
     const w = this.world;
     const faction = w.players[b.owner].faction;
-    const tier = w.players[b.owner].age;
+    const tier = w.players[b.owner].level;
     const group = new THREE.Group();
     group.position.set(b.x, heightAt(w, b.x, b.z), b.z);
     group.rotation.y = b.rot * Math.PI / 2;
@@ -1125,7 +1165,7 @@ export class GameView {
     const g = this.ghost;
     const def = BUILDINGS[g.type];
     const faction = this.world.players[0].faction;
-    const tier = this.world.players[0].age;
+    const tier = this.world.players[0].level;
     const key = `${g.type}:${tier}`;
     if (!this.ghostMesh || this.ghostMesh.userData.key !== key) {
       if (this.ghostMesh) this.scene.remove(this.ghostMesh);
