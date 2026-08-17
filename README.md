@@ -46,8 +46,8 @@ of the game.
 | Level | Cost | Unlocks |
 | --- | --- | --- |
 | I — Camp | — | House, Farm, Storehouse, Dock, Villagers, Fishing Boats |
-| II — Hamlet | 100 food | Barracks, Wall, Garden, Spearman |
-| III — Village | 190 food, 80 wood | Archery Range, Market, Shrine, Statue, Plaza, Archer, Trade Cart, The Wheel |
+| II — Hamlet | 100 food | Barracks, Wall, Spearman, civic gardens |
+| III — Village | 190 food, 80 wood | Archery Range, Market, Shrine, Archer, Trade Cart, The Wheel, civic plazas |
 | IV — Town | 300 food, 100 gold | Elite unit, Watch Tower, Academy, Forum, extra Town Centers, Masonry, Bronze Arms, Irrigation, Medicine |
 | V — City | 460 food, 190 gold, 100 stone | Temple, Amphitheater, Lighthouse, Monument, Coinage, Logistics |
 | VI — Metropolis | 650 food, 320 gold, 200 stone | **The Wonder**, Hardened Shields |
@@ -71,7 +71,13 @@ your status rises.
 - **Forum** — unlocks the labor pool: idle villagers are assigned work
   automatically along presets you pick (Balanced / Growth / Treasury).
 - **Lighthouse** — boats gather 30% faster, sail 20% faster.
-- **Statue, Garden, Plaza** — beautify your city; plazas are walkable paving.
+- **The city builds itself** — you never place decoration. Every finished
+  building is linked to its nearest neighbour and to the nearest hub by a paved
+  road, so a sprawl of houses reads as one city; and the larger works gather
+  gardens, plazas and statues in the spare ground around them as your
+  settlement grows (gardens from Hamlet, plazas from Village, statues from
+  Town). It is all scenery: nothing blocks a path, and laying a foundation over
+  a garden simply sweeps it away.
 - **Wonder** *(Metropolis)* — complete it and defend it for three minutes to win
   without razing a single town center. The enemy will come with everything.
 

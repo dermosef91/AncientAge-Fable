@@ -2,7 +2,9 @@
 // scatter decoration, fog-of-war overlay, minimap base image.
 import * as THREE from 'three';
 import { MAP_H, MAP_W } from '../core/config';
+import type { Faction } from '../core/types';
 import { clamp, lerp, makeNoise2D } from '../core/utils';
+import type { CivicProp } from '../sim/civic';
 import { heightAt, WATER_Y } from '../sim/map';
 import { F_WATER } from '../sim/pathfinding';
 import type { World } from '../sim/world';
@@ -40,7 +42,13 @@ const SCATTER_KINDS = [
   'paving', 'paving2', 'rock_pale', 'rock_sand'
 ];
 
+/** How far paving sinks into the ground so it never z-fights with it. */
+const PAVING_SINK = -0.035;
+
 interface TreeHandle { mesh: THREE.InstancedMesh; index: number; x: number; z: number; baseScale: number }
+
+/** A growing instanced batch of identical road slabs. */
+interface RoadBatch { mesh: THREE.InstancedMesh; kind: string; faction: Faction; count: number; cap: number }
 
 export class TerrainView {
   group = new THREE.Group();
@@ -57,6 +65,14 @@ export class TerrainView {
   private stumpCount = 0;
   private dummy = new THREE.Object3D();
 
+  // civic layer: roads and ornaments the settlements lay down as they grow
+  private civicGroup = new THREE.Group();
+  private civicRev = -1;
+  private civicSeen = new Set<number>();
+  private ornaments = new Map<number, THREE.Mesh>();
+  private roadBatches = new Map<string, RoadBatch>();
+  private roadSlots = new Map<number, { key: string; i: number }>();
+
   constructor(private world: World) {
     this.group.add(this.buildGround());
     const { mesh: waterMesh, mat } = this.buildWater();
@@ -65,6 +81,7 @@ export class TerrainView {
     this.buildTrees();
     this.buildScatter();
     this.buildProps();
+    this.group.add(this.civicGroup);
 
     // stumps (appear where trees are chopped)
     this.stumpMesh = new THREE.InstancedMesh(stumpGeo(), MAT.main, 220);
@@ -457,6 +474,106 @@ export class TerrainView {
     }
   }
 
+  // ---------------- civic layer ----------------
+  /**
+   * Mirror the roads and ornaments the simulation has laid down. Roads are
+   * append-only and numerous, so they ride in growing instanced batches;
+   * ornaments are few and can be built over, so each gets its own mesh.
+   */
+  private syncCivic() {
+    const w = this.world;
+    if (w.civicRev === this.civicRev) return;
+    this.civicRev = w.civicRev;
+    const live = new Set<number>();
+    for (const p of w.civic) {
+      live.add(p.id);
+      if (this.civicSeen.has(p.id)) continue;
+      this.civicSeen.add(p.id);
+      if (p.kind === 'road') this.addRoad(p);
+      else this.addOrnament(p);
+    }
+    for (const id of this.civicSeen) {
+      if (live.has(id)) continue;
+      this.civicSeen.delete(id);
+      const mesh = this.ornaments.get(id);
+      if (mesh) {
+        this.civicGroup.remove(mesh);
+        this.ornaments.delete(id);
+      }
+      const slot = this.roadSlots.get(id);
+      if (slot) {
+        // instance slots are never reclaimed — collapse the slab instead
+        const batch = this.roadBatches.get(slot.key);
+        if (batch) {
+          this.dummy.position.set(0, -50, 0);
+          this.dummy.rotation.set(0, 0, 0);
+          this.dummy.scale.setScalar(0);
+          this.dummy.updateMatrix();
+          batch.mesh.setMatrixAt(slot.i, this.dummy.matrix);
+          batch.mesh.instanceMatrix.needsUpdate = true;
+        }
+        this.roadSlots.delete(id);
+      }
+    }
+  }
+
+  private addRoad(p: CivicProp) {
+    const kind = p.variant ? 'paving2' : 'paving';
+    const key = `${kind}:${p.faction}`;
+    let batch = this.roadBatches.get(key);
+    if (!batch) {
+      batch = { mesh: this.makeRoadBatch(kind, p.faction, 256), kind, faction: p.faction, count: 0, cap: 256 };
+      this.roadBatches.set(key, batch);
+      this.civicGroup.add(batch.mesh);
+    }
+    if (batch.count >= batch.cap) this.growRoadBatch(batch);
+    const i = batch.count++;
+    this.dummy.position.set(p.x, heightAt(this.world, p.x, p.z) + PAVING_SINK, p.z);
+    this.dummy.rotation.set(0, 0, 0);
+    this.dummy.scale.setScalar(1);
+    this.dummy.updateMatrix();
+    batch.mesh.setMatrixAt(i, this.dummy.matrix);
+    batch.mesh.count = batch.count;
+    batch.mesh.instanceMatrix.needsUpdate = true;
+    this.roadSlots.set(p.id, { key, i });
+  }
+
+  private makeRoadBatch(kind: string, faction: Faction, cap: number): THREE.InstancedMesh {
+    const mesh = new THREE.InstancedMesh(propGeo(kind, faction), MAT.main, cap);
+    mesh.count = 0;
+    mesh.receiveShadow = true;
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    // An instanced bounding sphere is computed once and never revisited, so a
+    // batch that keeps growing would cull slabs laid outside the first sphere.
+    mesh.frustumCulled = false;
+    return mesh;
+  }
+
+  /** A city outgrew its batch: move the slabs into a roomier one. */
+  private growRoadBatch(batch: RoadBatch) {
+    const cap = batch.cap * 2;
+    const next = this.makeRoadBatch(batch.kind, batch.faction, cap);
+    (next.instanceMatrix.array as Float32Array).set(batch.mesh.instanceMatrix.array as Float32Array);
+    next.count = batch.count;
+    next.instanceMatrix.needsUpdate = true;
+    this.civicGroup.remove(batch.mesh);
+    batch.mesh.dispose();
+    this.civicGroup.add(next);
+    batch.mesh = next;
+    batch.cap = cap;
+  }
+
+  private addOrnament(p: CivicProp) {
+    const mesh = new THREE.Mesh(propGeo(`civic_${p.kind}`, p.faction), MAT.main);
+    const sink = p.kind === 'plaza' ? PAVING_SINK : 0;
+    mesh.position.set(p.x, heightAt(this.world, p.x, p.z) + sink, p.z);
+    mesh.rotation.y = p.rot;
+    mesh.castShadow = p.kind !== 'plaza';
+    mesh.receiveShadow = true;
+    this.civicGroup.add(mesh);
+    this.ornaments.set(p.id, mesh);
+  }
+
   // ---------------- fog ----------------
   updateFog() {
     const mctx = this.fogMaskCanvas.getContext('2d')!;
@@ -489,6 +606,7 @@ export class TerrainView {
   // ---------------- per-frame ----------------
   update(dt: number, time: number) {
     this.waterMat.uniforms.uTime.value = time;
+    this.syncCivic();
     // tree shakes
     for (let i = this.shakes.length - 1; i >= 0; i--) {
       const s = this.shakes[i];

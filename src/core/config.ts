@@ -31,7 +31,7 @@ export const SETTLEMENTS: SettlementDef[] = [
   },
   {
     name: 'Hamlet', numeral: 'II', cost: { food: 100 }, time: 16,
-    blurb: 'Timber replaces canvas. Unlocks the Barracks, walls and gardens.'
+    blurb: 'Timber replaces canvas. Unlocks the Barracks and walls, and gardens begin to appear.'
   },
   {
     name: 'Village', numeral: 'III', cost: { food: 190, wood: 80 }, time: 24,
@@ -284,13 +284,16 @@ export const BUILDINGS: Record<BuildingTypeId, BuildingDef> = {
   }
 };
 
-/** Order shown in the build menu; town center gets its own wide row. */
+/**
+ * Order shown in the build menu; town center gets its own wide row.
+ * Statues, gardens and plazas are not here: the settlement raises those for
+ * itself around its larger works as it grows (see sim/civic.ts).
+ */
 export const BUILD_MENU: BuildingTypeId[] = [
   'house', 'farm', 'storehouse',
   'barracks', 'range', 'dock',
   'market', 'shrine', 'academy',
   'tower', 'wall', 'lighthouse',
-  'statue', 'garden', 'plaza',
   'amphitheater', 'forum', 'monument'
 ];
 export const BUILD_MENU_WIDE: BuildingTypeId[] = ['towncenter', 'wonder'];

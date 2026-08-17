@@ -11,6 +11,7 @@ import type {
 } from '../core/types';
 import { RES_OF_NODE } from '../core/types';
 import { dist, dist2 } from '../core/utils';
+import { clearCivicUnder, type CivicProp } from './civic';
 import {
   F_BLOCK, F_BUILDING, F_WALL0, F_WALL1, F_WATER, findPath, landPassable, nearestFree,
   ringCells, waterPassable
@@ -35,6 +36,14 @@ export class World {
   nodes = new Map<number, ResourceNode>();
   projectiles: Projectile[] = [];
   deco: MapDeco[] = [];
+
+  /** Roads and ornaments the settlements lay down for themselves (see civic.ts). */
+  civic: CivicProp[] = [];
+  /** Cell -> civic prop id; -1 marks the founding plaza laid at map gen. */
+  civicAt = new Int32Array(MAP_W * MAP_H);
+  /** Bumped on every civic change so the view can resync cheaply. */
+  civicRev = 0;
+  civicSeeded = false;
 
   players: PlayerState[] = [];
   events: SimEvent[] = [];
@@ -238,6 +247,8 @@ export class World {
       trickleT: 0
     };
     this.buildings.set(b.id, b);
+    // Civic scenery is built over without ceremony.
+    clearCivicUnder(this, cx, cz, def.size);
     if (!def.walkable) {
       // Every wall segment doubles as a gatehouse for its owner.
       const flags = F_BUILDING | (type === 'wall' ? (owner === 0 ? F_WALL0 : F_WALL1) : 0);
