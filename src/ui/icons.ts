@@ -47,28 +47,25 @@ const P: Record<string, string> = {
     <path d="M12.4 19.4c0-2.8 2-4.8 4.4-4.8s4.4 2 4.4 4.8z" fill="#a8bccb"/>`,
 
   // ---------- actions ----------
-  build: `<rect x="10.4" y="10" width="2.9" height="11.4" rx="1.4" transform="rotate(-28 11.8 15.7)" fill="${G.woodDark}"/>
-    <path d="M4.6 6.6l5.8-3.4 3 1.8 3.2-1 3 4.4-3.2 1.6-2.6-1.4-3.2 2z" fill="${G.steel}"/>
-    <path d="M10.4 3.2l3 1.8-4.4 2.6-1.8-1.1z" fill="#eef2f6"/>`,
+  // The action-bar trio (build / gather / stop) is drawn in currentColor —
+  // flat, bold silhouettes that inherit the button's text colour, so the
+  // same glyph works light-on-dark and dark-on-gold (the primary button).
+  build: `<g fill="currentColor" transform="rotate(-35 12 11)">
+      <rect x="4.2" y="3.6" width="15.6" height="6.6" rx="1.8"/>
+      <rect x="10.4" y="9.4" width="3.2" height="11.2" rx="1.6"/>
+    </g>`,
   attack: `<g stroke="${G.steel}" stroke-width="2.6" stroke-linecap="round" fill="none">
       <path d="M5.4 18.6L17.8 5.6"/><path d="M18.6 18.6L6.2 5.6"/></g>
     <g stroke="${G.goldDeep}" stroke-width="2.2" stroke-linecap="round" fill="none">
       <path d="M4 15.4l3.4 3.4"/><path d="M20 15.4l-3.4 3.4"/></g>`,
-  stop: `<g fill="${G.cloth}">
-      <rect x="5.4" y="7" width="2.9" height="7.4" rx="1.45"/>
-      <rect x="9" y="4.2" width="2.9" height="10" rx="1.45"/>
-      <rect x="12.6" y="4.8" width="2.9" height="9.4" rx="1.45"/>
-      <rect x="16.2" y="7.6" width="2.9" height="6.8" rx="1.45"/>
-      <path d="M5 12.6h14.2v3.2c0 3.4-3 5.8-7.1 5.8s-7.1-2.4-7.1-5.8z"/>
-    </g>`,
+  stop: `<path d="M8.6 3h6.8L21 8.6v6.8L15.4 21H8.6L3 15.4V8.6z" fill="currentColor"/>`,
   hold: `<path d="M12 2.4l8 3v6.3c0 4.8-3.3 8.8-8 10.6-4.7-1.8-8-5.8-8-10.6V5.4z" fill="${G.blueDeep}"/>
     <path d="M12 5.2l5.2 2v4.6c0 3.3-2.1 6.1-5.2 7.5z" fill="${G.blue}"/>
     <path d="M12 5.2l-5.2 2v4.6c0 3.3 2.1 6.1 5.2 7.5z" fill="#7fb6ec"/>`,
-  gather: `<path d="M3.6 10.4h16.8l-1.7 8.8a2 2 0 01-2 1.6H7.3a2 2 0 01-2-1.6z" fill="${G.wood}"/>
-    <path d="M3 8.6h18v2.6H3z" fill="#c9a877"/>
-    <path d="M8.4 8.6c0-3 1.7-5 3.6-5s3.6 2 3.6 5" stroke="${G.woodDark}" stroke-width="1.6" fill="none"/>
-    <circle cx="9.6" cy="14.6" r="1.7" fill="${G.red}"/>
-    <circle cx="14" cy="15.4" r="1.7" fill="${G.gold}"/>`,
+  gather: `<path d="M8.2 9c0-3.4 1.7-5.6 3.8-5.6s3.8 2.2 3.8 5.6" stroke="currentColor"
+      stroke-width="2" fill="none" stroke-linecap="round"/>
+    <path d="M4.4 11.6h15.2l-1.6 8a2 2 0 01-2 1.6H8a2 2 0 01-2-1.6z" fill="currentColor"/>
+    <rect x="3" y="8.8" width="18" height="2.6" rx="1.3" fill="currentColor"/>`,
   demolish: `<path d="M4.4 7.4h15.2l-1.3 12.2a2 2 0 01-2 1.8H7.7a2 2 0 01-2-1.8z" fill="${G.stoneDark}"/>
     <path d="M3 5.2h18v2.6H3z" fill="${G.stone}"/>
     <path d="M9.2 5.2V3.6h5.6v1.6" stroke="${G.stone}" stroke-width="1.8" fill="none"/>
