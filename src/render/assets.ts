@@ -52,6 +52,10 @@ export const assets: {
   loaded: false
 };
 
+/** Grip bones on the shared rig — tools and carried loads hang off these. */
+export const RIGHT_HAND = 'RightHand';
+export const LEFT_HAND = 'LeftHand';
+
 /** Names of the clips we drive from gameplay state. */
 export const VILLAGER_CLIPS = {
   idle: 'Idle_02',
@@ -243,6 +247,8 @@ export function instantiateCharacter(asset: CharAsset): {
   root: THREE.Group;
   mixer: THREE.AnimationMixer;
   bones: Map<string, THREE.Object3D>;
+  /** World scale of a hand bone — props parented there must divide it out. */
+  boneScale: number;
 } {
   const model = cloneSkinned(asset.template);
   model.scale.setScalar(asset.scale);
@@ -252,5 +258,12 @@ export function instantiateCharacter(asset: CharAsset): {
   const mixer = new THREE.AnimationMixer(model);
   const bones = new Map<string, THREE.Object3D>();
   model.traverse(o => { if (o.name) bones.set(o.name, o); });
-  return { root, mixer, bones };
+
+  // The exported rig carries its own unit conversion (centimetre bones under a
+  // 0.01 armature), so a hand bone's world scale is nowhere near the model's.
+  root.updateMatrixWorld(true);
+  const hand = bones.get(RIGHT_HAND) ?? bones.get(LEFT_HAND);
+  const s = new THREE.Vector3();
+  (hand ?? model).getWorldScale(s);
+  return { root, mixer, bones, boneScale: s.x || asset.scale };
 }

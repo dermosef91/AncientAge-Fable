@@ -1,7 +1,8 @@
-// Pooled visual effects: CPU particles, waving flags, projectile meshes,
-// command markers.
+// Pooled visual effects: CPU particles, building fires, waving flags,
+// projectile meshes, command markers.
 import * as THREE from 'three';
 import type { NodeKind } from '../core/types';
+import { clamp, makeRng } from '../core/utils';
 import { Parts } from './parts';
 
 // ---------------------------------------------------------------- particles
@@ -140,6 +141,352 @@ export class Particles {
   splash(x: number, z: number) {
     this.burst(x, 0.05, z, 6, 0xbfe8ea, { speed: 0.9, up: 1.3, life: 0.5, size: 0.14, grav: 3.4 });
   }
+  /** A single spark riding a fire's updraft (negative gravity = it climbs). */
+  ember(x: number, y: number, z: number) {
+    this.spawn(
+      x + (Math.random() - 0.5) * 0.3, y, z + (Math.random() - 0.5) * 0.3,
+      (Math.random() - 0.5) * 0.5, 1.1 + Math.random() * 1.4, (Math.random() - 0.5) * 0.5,
+      0.7 + Math.random() * 0.7, 0.09 + Math.random() * 0.06,
+      Math.random() < 0.4 ? 0xffe0a0 : 0xff9838, -0.35
+    );
+  }
+}
+
+// ---------------------------------------------------------------- fire
+// Flames and smoke are camera-facing point sprites sized in world units, so a
+// lick of fire keeps its physical size as the player zooms.
+const SPRITE_VERT = `
+  attribute float psize;
+  attribute float palpha;
+  attribute float pseed;
+  uniform float uScale;
+  varying vec3 vColor;
+  varying float vAlpha;
+  varying float vSeed;
+  void main() {
+    vColor = color;
+    vAlpha = palpha;
+    vSeed = pseed;
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    gl_PointSize = uScale * psize / max(0.5, -mv.z);
+    gl_Position = projectionMatrix * mv;
+  }`;
+
+// Teardrop silhouette drawn in point space: wide just above the base, pinched
+// at the tip, swaying as it rises. White-hot at the heart, red at the crown.
+const FLAME_FRAG = `
+  uniform float uTime;
+  varying vec3 vColor;
+  varying float vAlpha;
+  varying float vSeed;
+  void main() {
+    vec2 p = gl_PointCoord;
+    float y = 1.0 - p.y;                 // 0 at the base, 1 at the tip
+    float sway = sin(uTime * 8.0 + vSeed * 12.0 + y * 5.0) * 0.08 * y * y;
+    float x = p.x - 0.5 + sway;
+    float w = 0.30 * pow(max(0.0, 1.0 - y), 0.6) * (0.36 + 0.64 * smoothstep(0.0, 0.22, y));
+    float d = abs(x) / max(w, 0.001);
+    float body = (1.0 - smoothstep(0.4, 1.0, d)) * smoothstep(1.0, 0.72, y);
+    if (body < 0.01) discard;
+    float hot = (1.0 - smoothstep(0.0, 0.5, y)) * (1.0 - smoothstep(0.0, 0.7, d));
+    vec3 col = mix(vColor, vec3(0.95, 0.24, 0.06), smoothstep(0.28, 0.95, y));
+    col = mix(col, vec3(1.0, 0.95, 0.72), hot * hot);
+    gl_FragColor = vec4(col, body * vAlpha);
+  }`;
+
+const SMOKE_FRAG = `
+  varying vec3 vColor;
+  varying float vAlpha;
+  varying float vSeed;
+  void main() {
+    vec2 c = gl_PointCoord - 0.5;
+    float d = length(c);
+    if (d > 0.5) discard;
+    // a lumpy rim keeps puffs from reading as perfect circles
+    float ang = atan(c.y, c.x);
+    float rim = 0.42 + 0.06 * sin(ang * 3.0 + vSeed * 6.28) + 0.04 * sin(ang * 5.0 - vSeed * 9.4);
+    float a = smoothstep(rim, rim * 0.25, d);
+    gl_FragColor = vec4(vColor, a * vAlpha);
+  }`;
+
+/** A pool of camera-facing sprites sharing one draw call. */
+class SpriteField {
+  points: THREE.Points;
+  pos: Float32Array;
+  col: Float32Array;
+  size: Float32Array;
+  alpha: Float32Array;
+  seed: Float32Array;
+  private geo = new THREE.BufferGeometry();
+  private mat: THREE.ShaderMaterial;
+
+  constructor(public max: number, frag: string, renderOrder: number) {
+    this.pos = new Float32Array(max * 3);
+    this.col = new Float32Array(max * 3);
+    this.size = new Float32Array(max);
+    this.alpha = new Float32Array(max);
+    this.seed = new Float32Array(max);
+    for (let i = 0; i < max; i++) this.pos[i * 3 + 1] = -50;
+    this.geo.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
+    this.geo.setAttribute('color', new THREE.BufferAttribute(this.col, 3));
+    this.geo.setAttribute('psize', new THREE.BufferAttribute(this.size, 1));
+    this.geo.setAttribute('palpha', new THREE.BufferAttribute(this.alpha, 1));
+    this.geo.setAttribute('pseed', new THREE.BufferAttribute(this.seed, 1));
+    this.mat = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      vertexColors: true,
+      uniforms: { uScale: { value: 900 }, uTime: { value: 0 } },
+      vertexShader: SPRITE_VERT,
+      fragmentShader: frag
+    });
+    this.points = new THREE.Points(this.geo, this.mat);
+    this.points.frustumCulled = false;
+    this.points.renderOrder = renderOrder;
+  }
+
+  set(i: number, x: number, y: number, z: number, size: number, alpha: number, seed: number,
+      r: number, g: number, b: number) {
+    this.pos[i * 3] = x; this.pos[i * 3 + 1] = y; this.pos[i * 3 + 2] = z;
+    this.size[i] = size; this.alpha[i] = alpha; this.seed[i] = seed;
+    this.col[i * 3] = r; this.col[i * 3 + 1] = g; this.col[i * 3 + 2] = b;
+  }
+
+  hide(i: number) {
+    this.pos[i * 3 + 1] = -50;
+    this.size[i] = 0;
+    this.alpha[i] = 0;
+  }
+
+  flush(time: number, pixelsPerWorldUnit: number) {
+    this.mat.uniforms.uTime.value = time;
+    this.mat.uniforms.uScale.value = pixelsPerWorldUnit;
+    for (const name of ['position', 'color', 'psize', 'palpha', 'pseed']) {
+      (this.geo.getAttribute(name) as THREE.BufferAttribute).needsUpdate = true;
+    }
+  }
+}
+
+interface Lick {
+  ox: number; oy: number; oz: number;
+  h: number;      // full height at full intensity
+  thr: number;    // intensity at which this lick catches
+  phase: number;
+}
+
+interface FireEmitter {
+  x: number; y: number; z: number;  // ground centre of the building
+  top: number;                      // roof height, where smoke is born
+  radius: number;
+  intensity: number;
+  licks: Lick[];
+  smokeT: number;
+  emberT: number;
+  touched: boolean;
+}
+
+const MAX_FLAMES = 260;
+const MAX_SMOKE = 260;
+const SMOKE_YOUNG = new THREE.Color(0x574c42);
+const SMOKE_OLD = new THREE.Color(0xa9a094);
+const FLAME_BASE = new THREE.Color(0xff9a2b);
+
+/**
+ * Fires burning on buildings. The view feeds an intensity per building every
+ * frame; the fire swells while blows land and gutters out once they stop.
+ */
+export class Fires {
+  group = new THREE.Group();
+  private flames = new SpriteField(MAX_FLAMES, FLAME_FRAG, 21);
+  private smoke = new SpriteField(MAX_SMOKE, SMOKE_FRAG, 22);
+  private emitters = new Map<number, FireEmitter>();
+  private lights: THREE.PointLight[] = [];
+  private scale = 900;
+
+  // smoke particle state
+  private sVel = new Float32Array(MAX_SMOKE * 3);
+  private sLife = new Float32Array(MAX_SMOKE);
+  private sMax = new Float32Array(MAX_SMOKE);
+  private sSize = new Float32Array(MAX_SMOKE);
+  private sGrow = new Float32Array(MAX_SMOKE);
+  private sSeed = new Float32Array(MAX_SMOKE);
+  private sHead = 0;
+  private tmpCol = new THREE.Color();
+
+  constructor(private particles: Particles) {
+    this.group.add(this.flames.points, this.smoke.points);
+    // two pooled lights follow the fiercest fires; they stay in the scene at
+    // zero intensity so the light count — and the shaders — never change
+    for (let i = 0; i < 2; i++) {
+      const l = new THREE.PointLight(0xff7b2e, 0, 12, 2);
+      this.group.add(l);
+      this.lights.push(l);
+    }
+  }
+
+  /** Pixels per world unit at one unit from the camera. */
+  setViewport(drawingBufferHeight: number, fovDeg: number) {
+    this.scale = drawingBufferHeight / (2 * Math.tan((fovDeg * Math.PI) / 360));
+  }
+
+  /** Called each frame for every burning building; untouched fires go out. */
+  set(id: number, x: number, y: number, z: number, radius: number, top: number, intensity: number) {
+    let e = this.emitters.get(id);
+    if (!e) {
+      e = {
+        x, y, z, top, radius, intensity: 0,
+        licks: makeLicks(id, radius, top),
+        smokeT: 0, emberT: Math.random(), touched: true
+      };
+      this.emitters.set(id, e);
+    }
+    e.x = x; e.y = y; e.z = z; e.top = top; e.radius = radius;
+    e.intensity = intensity;
+    e.touched = true;
+  }
+
+  clearFor(id: number) { this.emitters.delete(id); }
+
+  update(dt: number, time: number) {
+    let fi = 0;
+    let bestA = 0, bestB = 0;
+    let lightA: FireEmitter | null = null, lightB: FireEmitter | null = null;
+    // a whole town ablaze would churn the smoke pool and make puffs blink out,
+    // so each column thins as the number of fires grows
+    const load = clamp(3.5 / Math.max(1, this.emitters.size), 0.3, 1);
+
+    for (const [id, e] of this.emitters) {
+      if (!e.touched) { this.emitters.delete(id); continue; }
+      e.touched = false;
+      const inten = clamp(e.intensity, 0, 1);
+
+      for (const l of e.licks) {
+        if (fi >= MAX_FLAMES) break;
+        const k = clamp((inten - l.thr) / 0.28, 0, 1);
+        if (k < 0.03) continue;
+        // two detuned waves so neighbouring licks never pulse in step
+        const flick = 0.72 + 0.2 * Math.sin(time * 6.3 + l.phase * 7) + 0.18 * Math.sin(time * 11.7 + l.phase * 3);
+        const h = l.h * (0.45 + 0.55 * k) * flick;
+        this.flames.set(
+          fi++, e.x + l.ox, e.y + l.oy + h * 0.5, e.z + l.oz,
+          h, clamp(k * 1.1, 0, 1) * 0.95, l.phase,
+          FLAME_BASE.r, FLAME_BASE.g, FLAME_BASE.b
+        );
+      }
+
+      // smoke column and embers scale with how hard the place is burning
+      e.smokeT += dt * (2.5 + inten * 8) * (0.55 + e.radius * 0.5) * load;
+      while (e.smokeT >= 1) {
+        e.smokeT -= 1;
+        this.spawnSmoke(e, inten);
+      }
+      e.emberT += dt * (3 + inten * 12) * load;
+      while (e.emberT >= 1) {
+        e.emberT -= 1;
+        const a = Math.random() * Math.PI * 2, r = Math.random() * e.radius * 0.8;
+        this.particles.ember(e.x + Math.cos(a) * r, e.y + e.top * (0.4 + Math.random() * 0.6), e.z + Math.sin(a) * r);
+      }
+
+      const weight = inten * (0.6 + e.radius * 0.4);
+      if (weight > bestA) { bestB = bestA; lightB = lightA; bestA = weight; lightA = e; }
+      else if (weight > bestB) { bestB = weight; lightB = e; }
+    }
+    for (let i = fi; i < MAX_FLAMES; i++) this.flames.hide(i);
+
+    for (let i = 0; i < 2; i++) {
+      const e = i === 0 ? lightA : lightB;
+      const l = this.lights[i];
+      if (!e) { l.intensity = 0; continue; }
+      // kept clear of the roof: inverse-square falloff would scorch anything
+      // sitting right on top of the light
+      l.position.set(e.x, e.y + e.top + 0.6, e.z);
+      const flick = 0.75 + 0.25 * Math.sin(time * 13.1 + e.x) * Math.sin(time * 7.7 + e.z);
+      l.intensity = 1.3 * clamp(e.intensity, 0, 1) * flick;
+      l.distance = 8 + e.radius * 2;
+    }
+
+    this.updateSmoke(dt, time);
+    this.flames.flush(time, this.scale);
+    this.smoke.flush(time, this.scale);
+  }
+
+  private spawnSmoke(e: FireEmitter, inten: number) {
+    const i = this.sHead;
+    this.sHead = (this.sHead + 1) % MAX_SMOKE;
+    const a = Math.random() * Math.PI * 2;
+    const r = Math.random() * e.radius;
+    const life = 2.2 + Math.random() * 1.8;
+    this.sVel[i * 3] = (Math.random() - 0.5) * 0.55 + 0.24;
+    this.sVel[i * 3 + 1] = 1.1 + Math.random() * 1.1 + inten * 0.7;
+    this.sVel[i * 3 + 2] = (Math.random() - 0.5) * 0.55 + 0.16;
+    this.sLife[i] = life;
+    this.sMax[i] = life;
+    this.sSize[i] = 0.3 + Math.random() * 0.3 + e.radius * 0.1;
+    this.sGrow[i] = 0.9 + Math.random() * 0.9 + e.radius * 0.25;
+    this.sSeed[i] = Math.random();
+    this.smoke.set(
+      i, e.x + Math.cos(a) * r, e.y + e.top * (0.35 + Math.random() * 0.4), e.z + Math.sin(a) * r,
+      this.sSize[i], 0, this.sSeed[i], SMOKE_YOUNG.r, SMOKE_YOUNG.g, SMOKE_YOUNG.b
+    );
+  }
+
+  private updateSmoke(dt: number, time: number) {
+    const p = this.smoke.pos;
+    for (let i = 0; i < MAX_SMOKE; i++) {
+      if (this.sLife[i] <= 0) continue;
+      this.sLife[i] -= dt;
+      if (this.sLife[i] <= 0) { this.smoke.hide(i); continue; }
+      const age = 1 - this.sLife[i] / this.sMax[i];
+      // rise, drift downwind, and curl as the column loses its punch
+      this.sVel[i * 3 + 1] *= 1 - 0.35 * dt;
+      const curl = Math.sin(time * 0.9 + this.sSeed[i] * 20) * 0.4;
+      p[i * 3] += (this.sVel[i * 3] + curl) * dt;
+      p[i * 3 + 1] += this.sVel[i * 3 + 1] * dt;
+      p[i * 3 + 2] += (this.sVel[i * 3 + 2] + curl * 0.6) * dt;
+      this.smoke.size[i] = this.sSize[i] + this.sGrow[i] * age;
+      this.smoke.alpha[i] = Math.min(1, age * 6) * (1 - age) * (1 - age) * 0.72;
+      this.tmpCol.copy(SMOKE_YOUNG).lerp(SMOKE_OLD, Math.min(1, age * 1.6));
+      this.smoke.col[i * 3] = this.tmpCol.r;
+      this.smoke.col[i * 3 + 1] = this.tmpCol.g;
+      this.smoke.col[i * 3 + 2] = this.tmpCol.b;
+    }
+  }
+
+  clear() {
+    this.emitters.clear();
+    for (let i = 0; i < MAX_FLAMES; i++) this.flames.hide(i);
+    for (let i = 0; i < MAX_SMOKE; i++) { this.smoke.hide(i); this.sLife[i] = 0; }
+    for (const l of this.lights) l.intensity = 0;
+  }
+}
+
+/**
+ * Scatter flame licks over a footprint in three bands: up the outer walls, out
+ * across the roof, and licking at the foundations. Wall and ground licks sit
+ * just proud of the walls so the building never swallows them, and the roof
+ * band stays below the visual height — that number is the tallest spire on the
+ * model, not the roof deck.
+ */
+function makeLicks(id: number, radius: number, top: number): Lick[] {
+  const rng = makeRng(id * 2654435761 + 17);
+  const n = clamp(Math.round(5 + radius * 3.6), 6, 16);
+  const licks: Lick[] = [];
+  for (let i = 0; i < n; i++) {
+    const a = rng() * Math.PI * 2;
+    const band = i % 4;
+    const roof = band === 1;
+    const ground = band === 3;
+    const r = radius * (roof ? 0.25 + rng() * 0.55 : 0.98 + rng() * 0.22);
+    licks.push({
+      ox: Math.cos(a) * r,
+      oy: roof ? top * (0.55 + rng() * 0.2) : ground ? 0.02 + rng() * 0.12 : top * (0.24 + rng() * 0.32),
+      oz: Math.sin(a) * r,
+      h: 0.55 + rng() * 0.55 + radius * 0.25,
+      thr: (i / n) * 0.5,
+      phase: rng()
+    });
+  }
+  return licks;
 }
 
 // ---------------------------------------------------------------- flags

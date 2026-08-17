@@ -6,11 +6,13 @@ import type { Building, BuildingTypeId, NodeKind, ResourceNode, SimEvent, Unit }
 import { clamp, lerp } from '../core/utils';
 import { heightAt, WATER_Y } from '../sim/map';
 import type { World } from '../sim/world';
-import { assets, instantiateCharacter, VILLAGER_CLIPS, type CharAsset } from './assets';
-import { arrowGeo, Flags, Markers, Particles } from './effects';
+import {
+  assets, instantiateCharacter, LEFT_HAND, RIGHT_HAND, VILLAGER_CLIPS, type CharAsset
+} from './assets';
+import { arrowGeo, Fires, Flags, Markers, Particles } from './effects';
 import {
   BUILDING_VIS_HEIGHT, buildingGeo, carryGeo, cropGeo, nodeGeo, rubbleGeo,
-  scaffoldGeo, unitGeo, weaponGeo
+  scaffoldGeo, toolGeo, unitGeo, weaponGeo, type ToolKind
 } from './models';
 import { MAT } from './parts';
 import { TerrainView } from './terrain';
@@ -21,6 +23,9 @@ interface UnitView {
   group: THREE.Group;
   body: THREE.Mesh | null;        // procedural body (null for rigged models)
   weapon: THREE.Mesh | null;
+  tool: THREE.Mesh | null;        // villager's working kit (axe, pick, basket…)
+  toolKind: ToolKind | null;
+  toolAnchor: THREE.Object3D;     // right hand on a rig, the group otherwise
   carry: THREE.Mesh | null;
   carryKind: NodeKind | null;
   carryAnchor: THREE.Object3D;    // where a carried resource is parented
@@ -33,8 +38,37 @@ interface UnitView {
   actions: Map<string, THREE.AnimationAction> | null;
   clip: string;
   mats: THREE.MeshStandardMaterial[];
-  modelScale: number;             // uniform scale of the rigged model (1 = procedural)
+  /** Multiplier that restores world size to a prop parented to a hand bone. */
+  propScale: number;
 }
+
+/**
+ * How a tool sits in a rigged villager's hand. Offsets are in world metres
+ * (scaled into bone space at mount time); the bone's axes run +y along the
+ * fingers, +z across the palm — the axis a haft lies on — and +x through it.
+ * `spin` turns the tool about its own haft so the business end faces forward.
+ */
+interface ToolMount {
+  left?: boolean;   // held in the off hand instead of the working hand
+  pos: [number, number, number];
+  spin: number;
+  scale?: number;
+}
+const GRIP_X = Math.PI / 2;   // haft (+y) onto the palm's grip axis (+z)
+/** Loads drawn as a basket, which has to hang level however the arm moves. */
+const BASKET_LOADS = new Set<NodeKind>(['berries', 'fish', 'carcass']);
+const UP_AXIS = new THREE.Vector3(0, 1, 0);
+// A half turn puts every head, blade and hoop on the far side of the fist,
+// where it clears the arm instead of hiding behind it.
+const TOOL_MOUNT: Record<ToolKind, ToolMount> = {
+  axe: { pos: [0, 0.055, 0], spin: Math.PI },
+  pickaxe: { pos: [0, 0.055, 0], spin: Math.PI },
+  sickle: { pos: [0, 0.055, 0], spin: Math.PI },
+  mallet: { pos: [0, 0.055, 0], spin: Math.PI },
+  net: { pos: [0, 0.055, 0], spin: Math.PI },
+  // the basket hangs off the off hand and is levelled every frame
+  basket: { left: true, pos: [0, 0.05, 0], spin: 0, scale: 0.95 }
+};
 
 interface BuildingView {
   group: THREE.Group;
@@ -46,6 +80,8 @@ interface BuildingView {
   flashing: boolean;
   hasFlags: boolean;
   tier: number;   // owner's age when the mesh was built — refreshed on age-up
+  burn: number;   // 0..1 how fiercely it is alight
+  sootMat: THREE.MeshLambertMaterial | null;  // own material, smoke-stained while it burns
 }
 
 interface NodeView {
@@ -66,6 +102,7 @@ export class GameView {
   camera: THREE.PerspectiveCamera;
   terrain: TerrainView;
   particles = new Particles();
+  fires = new Fires(this.particles);
   flags = new Flags();
   markers = new Markers();
 
@@ -105,6 +142,8 @@ export class GameView {
   private groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   private tmpV = new THREE.Vector3();
   private tmpV2 = new THREE.Vector3();
+  private tmpQ = new THREE.Quaternion();
+  private tmpQ2 = new THREE.Quaternion();
 
   constructor(private world: World, public canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -137,6 +176,7 @@ export class GameView {
     this.terrain = new TerrainView(world);
     this.scene.add(this.terrain.group);
     this.scene.add(this.particles.points);
+    this.scene.add(this.fires.group);
     this.scene.add(this.flags.group);
     this.scene.add(this.markers.group);
 
@@ -192,6 +232,8 @@ export class GameView {
     this.renderer.setSize(wpx, hpx, false);
     this.camera.aspect = wpx / hpx;
     this.camera.updateProjectionMatrix();
+    // fire sprites are sized in world units, so they need the pixel scale
+    this.fires.setViewport(hpx * this.renderer.getPixelRatio(), this.camera.fov);
   }
 
   // ---------------- picking ----------------
@@ -313,7 +355,9 @@ export class GameView {
             this.scene.remove(bv.group);
             this.buildingViews.delete(e.id);
             this.flags.removeFor(e.id);
+            bv.sootMat?.dispose();
           }
+          this.fires.clearFor(e.id);
           this.particles.boom(e.x, e.z, e.size);
           const rub = new THREE.Mesh(rubbleGeo(e.size), MAT.main);
           rub.position.set(e.x, heightAt(w, e.x, e.z), e.z);
@@ -337,7 +381,9 @@ export class GameView {
             this.scene.remove(bv.group);
             this.buildingViews.delete(e.id);
             this.flags.removeFor(e.id);
+            bv.sootMat?.dispose();
           }
+          this.fires.clearFor(e.id);
           this.particles.dust(e.x, 0.6, e.z, 16);
           break;
         }
@@ -357,11 +403,12 @@ export class GameView {
   update(alpha: number, rdt: number, time: number) {
     const w = this.world;
     this.syncUnits(alpha, rdt, time);
-    this.syncBuildings(time);
+    this.syncBuildings(time, rdt);
     this.syncNodes(time);
     this.syncProjectiles(alpha);
     this.updateDying(rdt);
     this.updateRubble(rdt);
+    this.fires.update(rdt, time);
     this.particles.update(rdt);
     this.flags.update(time);
     this.markers.update(rdt);
@@ -446,12 +493,7 @@ export class GameView {
 
       // weapon swing
       if (v.weapon) {
-        const working = (u.task.type === 'gather' || u.task.type === 'build' || u.task.type === 'farm') && !moving;
-        if (u.type === 'villager' && working) {
-          const swing = Math.sin(time * 7 + phase);
-          v.weapon.rotation.x = -0.4 + swing * 0.75;
-          v.weapon.visible = true;
-        } else if (u.attackAnimT < 0.3) {
+        if (u.attackAnimT < 0.3) {
           const k = u.attackAnimT / 0.3;
           v.weapon.rotation.x = -1.5 + Math.sin(k * Math.PI) * 1.9;
           v.weapon.visible = true;
@@ -461,14 +503,24 @@ export class GameView {
         }
       }
 
+      // working kit — the tool in hand follows the job the villager is on
+      if (u.type === 'villager') {
+        this.setTool(v, this.villagerTool(u, v));
+        if (v.tool && !v.mixer && v.toolKind !== 'basket') {
+          // the procedural villager has no clips: swing the tool by hand
+          const working = (u.task.type === 'gather' || u.task.type === 'build' || u.task.type === 'farm') && !moving;
+          v.tool.rotation.x = working ? -0.4 + Math.sin(time * 7 + phase) * 0.75 : -0.15;
+        }
+      }
+
       // carry prop — rigged villagers hold it in their hand
       const showCarry = u.carryAmt > w.carryCap(u.owner) * 0.35 && u.carryKind !== null;
       if (showCarry && v.carryKind !== u.carryKind) {
         if (v.carry) v.carry.removeFromParent();
         v.carry = new THREE.Mesh(carryGeo(u.carryKind!), MAT.main);
         if (v.mixer) {
-          // parented to a hand bone, so undo the model's scale
-          const inv = 1 / (v.modelScale || 1);
+          // parented to a hand bone, so undo the rig's own scale
+          const inv = v.propScale;
           v.carry.scale.setScalar(inv * 0.9);
           v.carry.position.set(0, 0.04 * inv, 0.06 * inv);
         } else {
@@ -479,6 +531,14 @@ export class GameView {
       }
       if (v.carry) v.carry.visible = showCarry;
       if (!showCarry) v.carryKind = null;
+      // the load is drawn as the full basket, so the empty one steps aside
+      if (v.tool) v.tool.visible = !(showCarry && v.toolKind === 'basket');
+
+      // a basket hangs from the hand: the arm swings, the load stays level
+      if (v.mixer) {
+        if (v.tool && v.toolKind === 'basket') this.levelProp(v.tool, u.dir);
+        if (v.carry && showCarry && BASKET_LOADS.has(v.carryKind!)) this.levelProp(v.carry, u.dir);
+      }
 
       // damage flash
       const flash = w.time - u.lastHitT < 0.12;
@@ -520,8 +580,9 @@ export class GameView {
     body.castShadow = true;
     group.add(body);
     let weapon: THREE.Mesh | null = null;
-    const wk = u.type === 'villager' ? 'tool' :
-      u.type === 'spearman' || u.type === 'hoplite' ? 'spear' :
+    // Villagers carry no weapon — their hands hold whatever the job needs,
+    // fitted by setTool once the simulation says what they're up to.
+    const wk = u.type === 'spearman' || u.type === 'hoplite' ? 'spear' :
       u.type === 'legionary' ? 'sword' :
       u.type === 'archer' || u.type === 'chariot' ? 'bow' : null;
     if (wk) {
@@ -533,14 +594,15 @@ export class GameView {
     }
     this.scene.add(group);
     return {
-      group, body, weapon, carry: null, carryKind: null, carryAnchor: group,
+      group, body, weapon, tool: null, toolKind: null, toolAnchor: group,
+      carry: null, carryKind: null, carryAnchor: group,
       flashing: false, dying: -1, type: u.type, water: u.water,
-      mixer: null, actions: null, clip: '', mats: [], modelScale: 1
+      mixer: null, actions: null, clip: '', mats: [], propScale: 1
     };
   }
 
   private createRiggedVillager(u: Unit, asset: CharAsset): UnitView {
-    const { root, mixer, bones } = instantiateCharacter(asset);
+    const { root, mixer, bones, boneScale } = instantiateCharacter(asset);
 
     // Own the materials so a damage flash affects only this villager.
     const mats: THREE.MeshStandardMaterial[] = [];
@@ -573,13 +635,17 @@ export class GameView {
     }
 
     this.scene.add(root);
+    const left = bones.get(LEFT_HAND) ?? root;
     return {
       group: root,
       body: null,
       weapon: null,
+      tool: null,
+      toolKind: null,
+      toolAnchor: bones.get(RIGHT_HAND) ?? left,
       carry: null,
       carryKind: null,
-      carryAnchor: bones.get('LeftHand') ?? bones.get('RightHand') ?? root,
+      carryAnchor: left,
       flashing: false,
       dying: -1,
       type: u.type,
@@ -588,8 +654,80 @@ export class GameView {
       actions,
       clip: VILLAGER_CLIPS.idle,
       mats,
-      modelScale: asset.scale
+      propScale: 1 / (boneScale || 1)
     };
+  }
+
+  /** The kit a job calls for: an axe for timber, a pick for the quarry… */
+  private toolForNode(kind: NodeKind | null | undefined): ToolKind | null {
+    switch (kind) {
+      case 'tree': return 'axe';
+      case 'stone': case 'gold': return 'pickaxe';
+      case 'berries': case 'carcass': return 'basket';
+      case 'fish': return 'net';
+      default: return null;
+    }
+  }
+
+  /** What this villager should be holding right now, given its orders. */
+  private villagerTool(u: Unit, v: UnitView): ToolKind | null {
+    switch (u.task.type) {
+      case 'gather': {
+        const n = this.world.nodes.get(u.task.nodeId);
+        return this.toolForNode(n?.kind ?? u.carryKind);
+      }
+      case 'farm': return 'sickle';
+      case 'build': return 'mallet';
+      case 'deposit': {
+        // hauling a load home — keep the kit for the job being resumed
+        if (u.task.thenFarmId) return 'sickle';
+        const n = u.task.thenNodeId ? this.world.nodes.get(u.task.thenNodeId) : undefined;
+        return this.toolForNode(n?.kind ?? u.carryKind);
+      }
+      case 'attack': return v.toolKind; // fight with whatever is already in hand
+      default: return null;
+    }
+  }
+
+  /** Cancel the hand's own rotation so a hanging prop stays upright. */
+  private levelProp(mesh: THREE.Object3D, dir: number) {
+    if (!mesh.parent) return;
+    mesh.parent.getWorldQuaternion(this.tmpQ).invert();
+    this.tmpQ2.setFromAxisAngle(UP_AXIS, dir);
+    mesh.quaternion.multiplyQuaternions(this.tmpQ, this.tmpQ2);
+  }
+
+  /** Fit (or clear) the tool in a villager's hand. */
+  private setTool(v: UnitView, kind: ToolKind | null) {
+    if (v.toolKind === kind) return;
+    v.toolKind = kind;
+    if (!kind) {
+      if (v.tool) { v.tool.removeFromParent(); v.tool = null; }
+      return;
+    }
+    // The procedural villager holds everything in the same slot, so one mesh
+    // serves; a rigged villager mounts each kit its own way in its own hand.
+    if (v.tool && !v.mixer) {
+      v.tool.geometry = toolGeo(kind);
+      return;
+    }
+    if (v.tool) v.tool.removeFromParent();
+    const mesh = new THREE.Mesh(toolGeo(kind), MAT.main);
+    mesh.castShadow = true;
+    if (v.mixer) {
+      const m = TOOL_MOUNT[kind];
+      const s = v.propScale;
+      mesh.position.set(m.pos[0] * s, m.pos[1] * s, m.pos[2] * s);
+      mesh.rotation.set(GRIP_X, m.spin, 0);
+      mesh.scale.setScalar(s * (m.scale ?? 1));
+      (m.left ? v.carryAnchor : v.toolAnchor).add(mesh);
+    } else {
+      // procedural body: gripped tools ride at the hand, the basket hangs higher
+      if (kind === 'basket') mesh.position.set(0.24, 0.62, 0.02);
+      else mesh.position.set(0.21, 0.42, 0.06);
+      v.toolAnchor.add(mesh);
+    }
+    v.tool = mesh;
   }
 
   /** Pick the clip that matches what this unit is currently doing. */
@@ -652,7 +790,7 @@ export class GameView {
   }
 
   // ---------------- buildings ----------------
-  private syncBuildings(time: number) {
+  private syncBuildings(time: number, rdt: number) {
     const w = this.world;
     for (const b of w.buildings.values()) {
       let v = this.buildingViews.get(b.id);
@@ -703,17 +841,34 @@ export class GameView {
       if (b.attackAnimT < 0.18) {
         v.mesh.position.y += Math.sin((b.attackAnimT / 0.18) * Math.PI) * 0.04;
       }
-      const flash = w.time - b.lastHitT < 0.05;
-      if (flash !== v.flashing) {
-        v.flashing = flash;
-        v.mesh.material = flash ? MAT.flash : MAT.main;
+
+      // Fire: it takes hold while the blows are landing — the worse the damage,
+      // the fiercer — then gutters out over a few seconds once they stop.
+      const struck = w.time - b.lastHitT < 1.8;
+      const wound = 1 - clamp(b.hp / b.maxHp, 0, 1);
+      const target = struck ? clamp(0.32 + wound * 0.8, 0, 1) : 0;
+      v.burn = target > v.burn
+        ? Math.min(target, v.burn + rdt * 1.0)
+        : Math.max(target, v.burn - rdt * 0.4);
+      if (v.burn > 0.02) {
+        const h = BUILDING_VIS_HEIGHT[b.type] * (b.built ? 1 : 0.35 + b.progress * 0.65);
+        this.fires.set(b.id, b.x, v.group.position.y, b.z, b.size * 0.5, h, v.burn);
+        if (!v.sootMat) v.sootMat = MAT.main.clone();
+        const k = v.burn * 0.55;
+        v.sootMat.color.setRGB(1 - k * 0.62, 1 - k * 0.72, 1 - k * 0.8);
       }
+
+      const flash = w.time - b.lastHitT < 0.05;
+      v.flashing = flash;
+      v.mesh.material = flash ? MAT.flash : v.burn > 0.02 && v.sootMat ? v.sootMat : MAT.main;
     }
     for (const [id, v] of this.buildingViews) {
       if (!w.buildings.has(id)) {
         this.scene.remove(v.group);
         this.buildingViews.delete(id);
         this.flags.removeFor(id);
+        this.fires.clearFor(id);
+        v.sootMat?.dispose();
       }
     }
   }
@@ -735,7 +890,10 @@ export class GameView {
       group.add(crop);
     }
     this.scene.add(group);
-    const v: BuildingView = { group, mesh, crop, scaffold: null, built: b.built, withered: false, flashing: false, hasFlags: false, tier };
+    const v: BuildingView = {
+      group, mesh, crop, scaffold: null, built: b.built, withered: false,
+      flashing: false, hasFlags: false, tier, burn: 0, sootMat: null
+    };
     if (b.built) {
       v.hasFlags = true;
       this.addBuildingFlags(b);
@@ -988,6 +1146,7 @@ export class GameView {
 
   dispose() {
     this.terrain.dispose();
+    this.fires.clear();
     this.flags.clear();
     this.markers.clear();
     this.renderer.dispose();
