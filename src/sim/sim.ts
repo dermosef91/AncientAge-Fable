@@ -1,7 +1,7 @@
 // Fixed-timestep simulation: unit task state machines, gathering, construction,
 // combat, projectiles, fog. Deterministic given the same command stream.
 import {
-  AGES, BUILDINGS, FARM_FOOD, FARM_RESEED_COST, MAP_W, POP_MAX, RES_ORDER,
+  AGES, BUILDINGS, ENC, FARM_FOOD, FARM_RESEED_COST, MAP_W, POP_MAX, RES_ORDER,
   SIEGE_UNITS, TECHS, TRADE_BASE_GOLD, TRADE_GOLD_PER_TILE, UNITS, WILDS, WONDER_COUNTDOWN
 } from '../core/config';
 import type {
@@ -974,6 +974,8 @@ function updateFog(world: World) {
   }
   for (const b of world.buildings.values()) {
     if (b.owner !== 0) continue;
-    world.markExplored(b.x, b.z, b.type === 'tower' ? 11 : b.type === 'lighthouse' ? 14 : 7.5);
+    world.markExplored(b.x, b.z,
+      b.type === 'outpost' ? ENC.outpostVision :
+      b.type === 'tower' ? 11 : b.type === 'lighthouse' ? 14 : 7.5);
   }
 }

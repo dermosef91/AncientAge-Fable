@@ -105,6 +105,10 @@ you could once ignore now needs an answer.
 Placement is deliberate now: tap to move the ghost, rotate it (⟳ or **R**),
 then confirm with **Build** (walls still place instantly, tap-tap-tap).
 
+Tap the **age chip** in the top right to open **the tech tree** — every age
+side by side with what it unlocks, what each thing costs, and what you have
+already researched. Worth a look before committing 460 food to the Iron Age.
+
 ### The wilds
 
 A neutral third power lives between the two towns, and scouting is how you
@@ -129,6 +133,12 @@ lifts; walking up to one is what springs it.
   can carry it, the carrier is marked on the minimap, and if they fall it drops
   where they died — for anyone to take. Enshrine it at a Town Center for a
   permanent trickle of gold.
+- **Ruined forts** — derelicts of some older war, standing between the two
+  towns. Unlike every other site these are never *spent*: stand in one with no
+  enemy in the yard and you claim it, and it can be taken and retaken all match.
+  A held fort watches a wide circle of country and serves as a forward drop-off
+  for your gatherers. Both sides in the yard at once and the claim stalls —
+  which is the point. The rival wants them too.
 
 Soldiers and towers ignore grazing animals and the huddled — the wilds only
 draw steel when the wilds draw first.

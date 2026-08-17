@@ -15,7 +15,7 @@ export type BuildingTypeId =
   | 'market' | 'shrine' | 'temple' | 'amphitheater' | 'academy'
   | 'statue' | 'garden' | 'plaza' | 'lighthouse' | 'forum' | 'wonder'
   // encounter props (owner 2)
-  | 'den' | 'camp' | 'cairn' | 'pedestal';
+  | 'den' | 'camp' | 'cairn' | 'pedestal' | 'outpost';
 
 /**
  * What a target *is*, for counter bonuses. Attacks carry a table of flat
@@ -43,7 +43,7 @@ export const RES_OF_NODE: Record<NodeKind, ResType> = {
 };
 
 // ---------- Encounters ----------
-export type EncounterKind = 'herd' | 'den' | 'camp' | 'cache' | 'refugees' | 'relic';
+export type EncounterKind = 'herd' | 'den' | 'camp' | 'cache' | 'refugees' | 'relic' | 'outpost';
 export type SiteState = 'dormant' | 'active' | 'cleared';
 
 /** One point of interest in the wilds, placed at map gen. */
@@ -60,6 +60,12 @@ export interface EncounterSite {
   provokedBy: number;    // camp/den: owner that drew blood, -1 = neutral
   timer: number;         // raid countdown / dig progress / settled count
   variant: number;       // herd species, cache payload
+  /** Outposts: who holds it right now. -1 = nobody, 0 = player, 1 = the rival. */
+  holder: number;
+  /** Outposts: 0..1 progress the current claimant has made toward taking it. */
+  capture: number;
+  /** Outposts: which owner is currently making that progress. */
+  claimant: number;
 }
 
 // ---------- Tasks ----------

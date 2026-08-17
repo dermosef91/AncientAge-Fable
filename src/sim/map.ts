@@ -775,7 +775,8 @@ export function genMap(world: World, seed: number, playerFaction: Faction, aiFac
         id: world.nextId++, kind, x, z,
         state: 'dormant', discovered: false, offered: false,
         unitIds: [], buildingId: 0, carrierId: 0, provokedBy: -1,
-        timer: kind === 'den' ? 25 : 0, variant
+        timer: kind === 'den' ? 25 : 0, variant,
+        holder: -1, capture: 0, claimant: -1
       };
       world.sites.push(site);
       placedSites.push({ x, z });
@@ -848,6 +849,17 @@ export function genMap(world: World, seed: number, playerFaction: Faction, aiFac
       if (!s) continue;
       const site = addSite('refugees', s.cx + 0.5, s.cz + 0.5);
       spawnPack(site, 'refugee', ENC.refugeeCount, 1.4);
+    }
+    // Ruined forts stand between the towns: never spent, always contested.
+    // They sit nearer the middle than the deep-field sites, so holding one is
+    // a forward commitment rather than a scouting reward.
+    for (let i = 0; i < ENC.outpostSites; i++) {
+      const s = pickSpot(3, 34);
+      if (!s) continue;
+      const site = addSite('outpost', s.cx + 1.5, s.cz + 1.5);
+      site.buildingId = wildBuilding('outpost', s.cx, s.cz);
+      if (!site.buildingId) { world.sites.pop(); continue; }
+      site.state = 'active';
     }
     // one Golden Idol, as far from both thrones as the land allows
     {

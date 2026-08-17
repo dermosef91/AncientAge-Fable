@@ -231,7 +231,7 @@ export function buildingGeo(type: BuildingTypeId, faction: Faction, tier = 0): T
 
 /** Flat, already-ornamental or wilds types skip the generic age dressing. */
 const NO_DRESS = new Set<BuildingTypeId>([
-  'wall', 'farm', 'plaza', 'garden', 'statue', 'den', 'camp', 'cairn', 'pedestal'
+  'wall', 'farm', 'plaza', 'garden', 'statue', 'den', 'camp', 'cairn', 'pedestal', 'outpost'
 ]);
 
 /**
@@ -275,7 +275,7 @@ export const BUILDING_VIS_HEIGHT: Record<BuildingTypeId, number> = {
   range: 1.7, siegeworks: 1.9, tower: 2.9, wall: 1.4, monument: 3.2, dock: 1.5,
   market: 1.6, shrine: 1.5, temple: 2.2, amphitheater: 1.6, academy: 1.9,
   statue: 1.9, garden: 0.7, plaza: 0.2, lighthouse: 3.4, forum: 1.9, wonder: 3.6,
-  den: 1.2, camp: 1.7, cairn: 0.8, pedestal: 1.3
+  den: 1.2, camp: 1.7, cairn: 0.8, pedestal: 1.3, outpost: 2.2
 };
 
 function towncenter(p: Parts, s: Style, f: Faction) {
@@ -1236,7 +1236,13 @@ export function rubbleGeo(size: number): THREE.BufferGeometry {
         Math.cos(a) * r, 0.07, Math.sin(a) * r,
         { ry: i, shade: 0.82 + ((i * 7) % 4) * 0.07 });
     }
-    p.box(0x4a4038, size * 0.55, 0.1, size * 0.5, 0, 0.04, 0, { ry: 0.4 });
+    // No ground plate: the scorch decal laid down with the collapse stains the
+    // earth, and a hard-edged slab beside a soft mark reads as a bug.
+    for (let i = 0; i < 3; i++) {
+      const a = i * 2.3 + size;
+      p.box(PAL.woodDark, 0.5 * size * 0.4, 0.07, 0.11, Math.cos(a) * size * 0.16, 0.05,
+        Math.sin(a) * size * 0.16, { ry: a, rz: 0.06, shade: 0.9 });
+    }
   });
 }
 

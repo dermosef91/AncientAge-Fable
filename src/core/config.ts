@@ -332,6 +332,11 @@ export const BUILDINGS: Record<BuildingTypeId, BuildingDef> = {
   pedestal: {
     name: 'Golden Idol', cost: {}, hp: 260, size: 1, buildTime: 1, age: 0,
     desc: 'A relic of a forgotten people. Carry it home to your Town Center.'
+  },
+  outpost: {
+    name: 'Ruined Fort', cost: {}, hp: 900, size: 3, buildTime: 1, armor: 2,
+    dropoff: true, age: 0,
+    desc: 'A derelict of some older war. Stand in it to claim it — it watches the country around and takes your goods.'
   }
 };
 
@@ -488,7 +493,11 @@ export const ENC = {
   gazelleFood: 75, boarFood: 170,
   carcassRotRate: 0.9,
   // the Golden Idol
-  relicPickupR: 1.7, relicDepositR: 1.8, idolGoldRate: 0.5
+  relicPickupR: 1.7, relicDepositR: 1.8, idolGoldRate: 0.5,
+  // ruined forts: contested all match, never spent
+  outpostSites: 2, captureR: 4.5, captureTime: 14, captureDecay: 0.35,
+  /** How far a held fort sees. Wide enough to be worth holding. */
+  outpostVision: 17
 };
 
 // ---------------------------------------------------------------- trade

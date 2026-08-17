@@ -6,9 +6,11 @@ value references), **Proposal** (the design, with numbers), **Implementation**
 (where the work lands), and **Risk** (the tradeoff to watch). Tags: **Impact**
 (how much it changes the feel of a match) and **Effort** (S / M / L).
 
-> **Shipped so far:** #1 (damage classes and counters) and #3 (siege units and
-> the Siege Workshop). Their entries below are kept as written, with a note on
-> what actually landed and how the final numbers differ from the proposal.
+> **Shipped so far:** #1 (damage classes and counters), #3 (siege units and the
+> Siege Workshop), #19 (capturable neutral structures), part of #25 (the tech
+> tree screen) and part of #29 (building collapse, dust and decals). Those
+> entries are kept as written, with a note on what actually landed and how it
+> differs from the proposal.
 
 ---
 
@@ -650,7 +652,23 @@ which is precisely why #3 (siege) should land alongside them.
 
 **Impact** High · **Effort** M
 
-### 19. Capturable neutral structures
+### 19. Capturable neutral structures — ✅ **shipped**
+
+> **What landed.** A **Ruined Fort**: a neutral 3×3 derelict placed twice per
+> map in the midfield. Standing in the yard with no enemy present claims it over
+> 14 seconds; both sides present and the claim stalls entirely, which is what
+> makes it somewhere to fight rather than somewhere to walk. A claim decays at
+> 0.35× the rate it built up, so being driven off costs you progress without
+> erasing it — you can come back. Holding one gives 17 tiles of vision and makes
+> the fort a **forward drop-off** for gatherers, and it flies the holder's banner
+> from the courtyard. New `World.reassignBuilding()` hands a standing building to
+> a new owner, recomputing max HP against their faction and techs while
+> preserving the wound as a fraction — taking a fort does not repair it. The AI
+> spares two soldiers to claim forts once it has an army of six.
+>
+> The repopulating wolf dens and passive-yield wells from the proposal below did
+> **not** land; the fort carries the idea on its own for now.
+
 
 **Today.** The wilds layer is the best thing in the game and it is strictly
 one-shot. `SiteState` is `dormant | active | cleared` (`src/core/types.ts:29`) —
@@ -847,7 +865,20 @@ already generating all of this information and throwing it away.
 
 **Impact** High · **Effort** S
 
-### 25. Tutorial and informative tooltips
+### 25. Tutorial and informative tooltips — 🟡 **tech tree shipped**
+
+> **What landed.** The tech tree screen, opened by tapping the age chip: all four
+> ages side by side, each listing the buildings, units and technologies it
+> unlocks with costs, model-derived thumbnails and a Reached / You are here /
+> Locked state. Everything is derived from the balance tables rather than
+> hand-listed, so a new building appears the moment it is added to `config.ts` —
+> the Siege Workshop showed up in it without a line of extra code. In-place
+> upgrade targets (Shrine → Temple) are included even though they never appear
+> in the build menu.
+>
+> The guided first match and per-unit tooltips are still open. The counter
+> tooltip half of this entry partly landed with #1's "Strong vs" line.
+
 
 **Today.** The game contains four ages, eight technologies, 21 building types,
 13 unit types, six encounter kinds, three boons, a market exchange, a trade
@@ -978,7 +1009,22 @@ optional in settings.
 
 **Impact** High · **Effort** M
 
-### 29. A juice pass
+### 29. A juice pass — 🟡 **collapse, dust and decals shipped**
+
+> **What landed.** Buildings now *fall*: the mesh holds for a fifth of the span,
+> then drops, leans and squashes into the ground on an accelerating curve while
+> ground dust rolls out from under it and the rubble beneath fades up to meet it.
+> Anything that was burning keeps burning as it goes and gutters out with the
+> roof. A pooled **decal system** (one draw call, 96 quads, each sampling terrain
+> height at its own four corners so marks lie along a slope) lays scorch where a
+> building fell and blood where a soldier did. Marching armies raise dust at a
+> low per-unit rate, so one scout barely stirs the ground and a column trails a
+> plume. Removing `rubbleGeo`'s hard-edged ground plate in favour of the soft
+> scorch was part of this — the two side by side read as a bug.
+>
+> Still open from this entry: arrows that stick, contact shadows/SSAO, selection
+> ring pulses, and scoped bloom.
+
 
 **Today.** The art direction is genuinely strong: flat-shaded merged geometry,
 one draw call per entity, GPU-instanced trees and paving, procedural everything.

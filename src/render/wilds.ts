@@ -163,6 +163,47 @@ function den(p: Parts) {
   p.sphere(W.bone, 0.06, -0.4, 0.05, 0.68, { seg: 4, sy: 0.7 });
 }
 
+/**
+ * A ruined fort: a broken square of old walls with one corner tower still up,
+ * a gateway on the +z face and grass coming through the flags. Neutral ground
+ * that either side can claim, so it is deliberately faction-less — the banner
+ * the holder plants on it is the only thing that says whose it is.
+ */
+function outpost(p: Parts) {
+  const R = 1.28;
+  p.box(0x8f8a7a, R * 2.15, 0.1, R * 2.15, 0, 0.05, 0, { shade: 0.94 });   // old paving
+  // weathered curtain walls, broken open toward +z
+  const wall = (w: number, h: number, d: number, x: number, y: number, z: number, shade = 1) =>
+    p.box(W.rock, w, h, d, x, y, z, { shade });
+  wall(R * 2.1, 0.86, 0.26, 0, 0.43, -R, 0.98);               // back wall, intact
+  wall(0.26, 0.78, R * 1.5, -R, 0.39, -0.2, 0.94);            // west wall
+  wall(0.26, 0.5, R * 0.8, -R, 0.25, 0.72, 0.9);              // west wall, tumbled
+  wall(0.26, 0.72, R * 1.1, R, 0.36, -0.45, 0.96);            // east wall
+  wall(R * 0.55, 0.34, 0.26, R * 0.66, 0.17, 0.62, 0.88);     // east stub by the gate
+  // crenellations survive only on the back wall
+  for (let i = -2; i <= 2; i++) {
+    p.box(W.rockDark, 0.24, 0.16, 0.28, i * 0.48, 0.94, -R, { shade: 0.92 });
+  }
+  // the one standing corner tower
+  p.cyl(W.rock, 0.44, 0.5, 1.5, -R * 0.9, 0.75, -R * 0.9, { seg: 8 });
+  p.cyl(W.rockDark, 0.5, 0.5, 0.12, -R * 0.9, 1.52, -R * 0.9, { seg: 8, shade: 0.9 });
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2;
+    p.box(W.rock, 0.16, 0.2, 0.16, -R * 0.9 + Math.cos(a) * 0.4, 1.66, -R * 0.9 + Math.sin(a) * 0.4,
+      { ry: a, shade: 0.95 });
+  }
+  // gateway posts, lintel long gone
+  p.box(W.rockDark, 0.3, 0.72, 0.3, -0.5, 0.36, R, { shade: 0.97 });
+  p.box(W.rockDark, 0.3, 0.56, 0.3, 0.36, 0.28, R, { shade: 0.93 });
+  // fallen blocks and scrub reclaiming the yard
+  p.ico(W.rock, 0.26, 0.42, 0.12, 0.2, { ry: 0.7, shade: 1.03 });
+  p.ico(W.rockDark, 0.2, -0.35, 0.09, 0.95, { ry: 2.2 });
+  p.ico(W.rock, 0.17, 0.9, 0.08, -0.9, { ry: 1.4, shade: 0.9 });
+  for (const [gx, gz] of [[-0.15, 0.35], [0.62, -0.5], [-0.75, -0.55], [0.15, 0.95]]) {
+    p.cone(0x6f8f3f, 0.15, 0.26, gx, 0.13, gz, { seg: 5, shade: 0.95 });
+  }
+}
+
 function camp(p: Parts) {
   // deserters' bivouac: ragged tent, lean-to, fire ring, rack of spears, loot
   p.cyl(0x8a744e, 1.35, 1.45, 0.08, 0, 0.04, 0, { seg: 9, shade: 0.92 }); // trampled ground
@@ -268,6 +309,7 @@ export function wildsBuilding(p: Parts, type: string): boolean {
     case 'camp': camp(p); return true;
     case 'cairn': cairn(p); return true;
     case 'pedestal': pedestal(p); return true;
+    case 'outpost': outpost(p); return true;
   }
   return false;
 }

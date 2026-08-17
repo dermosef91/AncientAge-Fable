@@ -2,14 +2,16 @@
 // simulation state into meshes with animation and effects.
 import * as THREE from 'three';
 import { BUILDINGS, MAP_H, MAP_W, UNITS } from '../core/config';
-import type { Building, BuildingTypeId, NodeKind, ResourceNode, SimEvent, Unit } from '../core/types';
+import type {
+  Building, BuildingTypeId, NodeKind, ResourceNode, SimEvent, Unit, UnitTypeId
+} from '../core/types';
 import { clamp, lerp } from '../core/utils';
 import { heightAt, WATER_Y } from '../sim/map';
 import type { World } from '../sim/world';
 import {
   assets, instantiateCharacter, LEFT_HAND, RIGHT_HAND, VILLAGER_CLIPS, type CharAsset
 } from './assets';
-import { arrowGeo, boulderGeo, Fires, Flags, Markers, Particles } from './effects';
+import { arrowGeo, boulderGeo, Decals, Fires, Flags, Markers, Particles } from './effects';
 import {
   BUILDING_VIS_HEIGHT, buildingGeo, carryGeo, cropGeo, nodeGeo, rubbleGeo,
   scaffoldGeo, toolGeo, unitGeo, weaponGeo, type ToolKind
@@ -18,6 +20,11 @@ import { MAT } from './parts';
 import { TerrainView } from './terrain';
 
 const CAM_DIR = new THREE.Vector3(0.42, 0.82, 0.42).normalize();
+
+/** Units heavy or numerous enough to raise dust on the march. */
+const MARCH_DUST = new Set<UnitTypeId>([
+  'spearman', 'archer', 'hoplite', 'legionary', 'mercenary', 'boar'
+]);
 
 interface UnitView {
   group: THREE.Group;
@@ -89,6 +96,26 @@ interface NodeView {
   kind: NodeKind;
 }
 
+/**
+ * A building on its way down. The mesh keeps standing for a beat, then drops
+ * and leans while dust rolls out along the ground; the rubble underneath fades
+ * up as it goes, so the two swap without a visible pop.
+ */
+interface Collapse {
+  id: number;        // the building's sim id — fires are keyed by it
+  view: BuildingView;
+  rubble: THREE.Mesh;
+  t: number;
+  dur: number;
+  y0: number;
+  size: number;
+  x: number; z: number;
+  tiltX: number; tiltZ: number;
+  drop: number;
+  burn: number;      // how hard it was alight when it fell
+  ringT: number;     // next ground-dust puff
+}
+
 interface Bar {
   group: THREE.Group;
   bg: THREE.Mesh;
@@ -103,6 +130,7 @@ export class GameView {
   terrain: TerrainView;
   particles = new Particles();
   fires = new Fires(this.particles);
+  decals = new Decals((x, z) => heightAt(this.world, x, z));
   flags = new Flags();
   markers = new Markers();
 
@@ -119,6 +147,7 @@ export class GameView {
   private nodeViews = new Map<number, NodeView>();
   private projViews = new Map<number, THREE.Mesh>();
   private rubble: { mesh: THREE.Mesh; t: number }[] = [];
+  private collapsing: Collapse[] = [];
   private dyingViews: UnitView[] = [];
 
   private sun: THREE.DirectionalLight;
@@ -176,6 +205,7 @@ export class GameView {
 
     this.terrain = new TerrainView(world);
     this.scene.add(this.terrain.group);
+    this.scene.add(this.decals.mesh);
     this.scene.add(this.particles.points);
     this.scene.add(this.fires.group);
     this.scene.add(this.flags.group);
@@ -345,26 +375,47 @@ export class GameView {
             }
             this.dyingViews.push(v);
             this.unitViews.delete(e.id);
-            if (v.water) this.particles.splash(e.x, e.z);
-            else this.particles.death(e.x, e.z);
+            if (v.water) {
+              this.particles.splash(e.x, e.z);
+            } else {
+              this.particles.death(e.x, e.z);
+              this.decals.blood(e.x, e.z);
+            }
           }
           break;
         }
         case 'boom': {
-          const bv = this.buildingViews.get(e.id);
-          if (bv) {
-            this.scene.remove(bv.group);
-            this.buildingViews.delete(e.id);
-            this.flags.removeFor(e.id);
-            bv.sootMat?.dispose();
-          }
-          this.fires.clearFor(e.id);
-          this.particles.boom(e.x, e.z, e.size);
+          const y = heightAt(w, e.x, e.z);
           const rub = new THREE.Mesh(rubbleGeo(e.size), MAT.main);
-          rub.position.set(e.x, heightAt(w, e.x, e.z), e.z);
+          rub.position.set(e.x, y, e.z);
           rub.rotation.y = e.id;
           this.scene.add(rub);
-          this.rubble.push({ mesh: rub, t: 0 });
+
+          const bv = this.buildingViews.get(e.id);
+          this.buildingViews.delete(e.id);
+          this.flags.removeFor(e.id);
+          if (bv) {
+            // Hold the standing mesh and let it fall; the rubble fades up under it.
+            rub.scale.setScalar(0.55);
+            rub.visible = false;
+            const a = e.id * 2.399;
+            this.collapsing.push({
+              id: e.id, view: bv, rubble: rub, t: 0,
+              dur: 0.62 + e.size * 0.09,
+              y0: bv.group.position.y, size: e.size, x: e.x, z: e.z,
+              tiltX: Math.cos(a) * (0.09 + e.size * 0.022),
+              tiltZ: Math.sin(a) * (0.09 + e.size * 0.022),
+              drop: (BUILDING_VIS_HEIGHT[e.bType] ?? 1.5) * 0.85 + 0.4,
+              burn: bv.burn,
+              ringT: 0
+            });
+          } else {
+            this.fires.clearFor(e.id);
+            this.rubble.push({ mesh: rub, t: 0 });
+          }
+          this.particles.boom(e.x, e.z, e.size);
+          this.particles.collapseRing(e.x, e.z, e.size);
+          this.decals.scorch(e.x, e.z, e.size);
           this.addShake(0.25 + e.size * 0.05);
           break;
         }
@@ -408,9 +459,11 @@ export class GameView {
     this.syncNodes(time);
     this.syncProjectiles(alpha);
     this.updateDying(rdt);
+    this.updateCollapses(rdt);
     this.updateRubble(rdt);
     this.fires.update(rdt, time);
     this.particles.update(rdt);
+    this.decals.update(rdt);
     this.flags.update(time);
     this.markers.update(rdt);
     this.terrain.update(rdt, time);
@@ -473,8 +526,15 @@ export class GameView {
         const speed = u.type === 'chariot' ? 14 : siege ? 5 : 11;
         y += Math.abs(Math.sin(time * speed + phase)) * (u.type === 'chariot' ? 0.03 : siege ? 0.02 : 0.055);
         v.group.rotation.z = Math.sin(time * speed + phase) * (siege ? 0.018 : 0.05);
-        if ((u.type === 'chariot' || siege) && Math.random() < rdt * (siege ? 6 : 8)) {
-          this.particles.spawn(x, 0.1, z, 0, 0.4, 0, 0.5, 0.16, 0xd9c8a0, 0.5);
+        // Marching feet raise dust. The rate is per-unit and deliberately low,
+        // so one scout barely stirs the ground and an army trails a plume.
+        const kick = u.type === 'chariot' ? 8 : siege ? 6 : MARCH_DUST.has(u.type) ? 1.5 : 0;
+        if (kick > 0 && Math.random() < rdt * kick) {
+          this.particles.spawn(
+            x + (Math.random() - 0.5) * 0.3, 0.08, z + (Math.random() - 0.5) * 0.3,
+            0, 0.35 + Math.random() * 0.3, 0, 0.45 + Math.random() * 0.35,
+            0.14 + Math.random() * 0.1, 0xd9c8a0, 0.5
+          );
         }
       } else if (u.type === 'ram' || u.type === 'catapult') {
         v.group.rotation.z = 0;   // timber does not breathe
@@ -924,6 +984,12 @@ export class GameView {
       case 'tower':
         this.flags.add(b.id, b.x + 0.4, y + 1.85, b.z + 0.4, accent, 0.7);
         break;
+      case 'outpost':
+        // A standard planted in the middle of the yard: the only thing that
+        // says whose the ruin is. Centred because the fort is placed at a
+        // random quarter turn, so any corner offset would miss the model.
+        this.flags.add(b.id, b.x, y, b.z, accent, 1.35);
+        break;
       case 'monument':
         this.flags.add(b.id, b.x - 1.25, y, b.z + 1.25, accent, 1.0);
         this.flags.add(b.id, b.x + 1.25, y, b.z + 1.25, accent, 1.0);
@@ -1020,6 +1086,56 @@ export class GameView {
       if (!seen.has(id)) {
         this.scene.remove(m);
         this.projViews.delete(id);
+      }
+    }
+  }
+
+  /**
+   * Drive buildings that are falling. Nothing moves for the first fifth of the
+   * span — the pause is what sells the weight — then the mesh drops, leans and
+   * squashes into the ground while the rubble beneath it fades up to meet it.
+   */
+  private updateCollapses(rdt: number) {
+    for (let i = this.collapsing.length - 1; i >= 0; i--) {
+      const c = this.collapsing[i];
+      c.t += rdt;
+      const k = Math.min(1, c.t / c.dur);
+      const fall = k < 0.2 ? 0 : Math.pow((k - 0.2) / 0.8, 2);   // accelerating
+      const g = c.view.group;
+      g.position.y = c.y0 - fall * c.drop;
+      g.rotation.x = c.tiltX * fall;
+      g.rotation.z = c.tiltZ * fall;
+      g.scale.y = 1 - fall * 0.28;
+
+      // dust keeps rolling out from under it while it comes down
+      c.ringT -= rdt;
+      if (fall > 0 && c.ringT <= 0) {
+        c.ringT = 0.07;
+        this.particles.collapseRing(c.x, c.z, c.size, 0.35);
+      }
+      // whatever was burning gutters out as the roof goes in
+      if (c.burn > 0.02) {
+        const fade = c.burn * (1 - k);
+        this.fires.set(
+          c.id, c.x, heightAt(this.world, c.x, c.z), c.z,
+          c.size * 0.42, Math.max(0.2, c.drop * (1 - fall)), fade
+        );
+      }
+      // rubble fades up under the falling mesh
+      if (k > 0.35) {
+        c.rubble.visible = true;
+        c.rubble.scale.setScalar(0.55 + 0.45 * Math.min(1, (k - 0.35) / 0.5));
+      }
+
+      if (k >= 1) {
+        this.scene.remove(g);
+        c.view.sootMat?.dispose();
+        this.fires.clearFor(c.id);
+        c.rubble.visible = true;
+        c.rubble.scale.setScalar(1);
+        this.rubble.push({ mesh: c.rubble, t: 0 });
+        this.particles.dust(c.x, 0.25, c.z, 6);
+        this.collapsing.splice(i, 1);
       }
     }
   }

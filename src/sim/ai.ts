@@ -22,6 +22,8 @@ export class AIController {
   private defendUntil = 0;
   private attackers: number[] = [];
   private wonderRushAt = 0;
+  private nextClaimAt = 180;
+  private claimers: number[] = [];
 
   constructor(private world: World, difficulty: Difficulty) {
     this.diff = DIFFICULTY[difficulty];
@@ -63,6 +65,7 @@ export class AIController {
       }
       return;
     }
+    this.claimForts(military);
     this.offense(tc, military);
   }
 
@@ -352,9 +355,36 @@ export class AIController {
     }
   }
 
+  /**
+   * Ruined forts are worth holding, so the AI holds them. It only spares a
+   * couple of soldiers and only once it has an army to spare — a fort is not
+   * worth losing the war over, but leaving them all to the player would make
+   * the whole objective a gift.
+   */
+  private claimForts(military: Unit[]) {
+    const w = this.world;
+    if (w.time < this.nextClaimAt || military.length < 6) return;
+    this.nextClaimAt = w.time + 45;
+    const free = military.filter(u => !this.claimers.includes(u.id) && !SIEGE_UNITS.has(u.type));
+    if (free.length < 3) return;
+    for (const site of w.sites) {
+      if (site.kind !== 'outpost' || site.state === 'cleared' || site.holder === OWNER) continue;
+      // send the two nearest spare soldiers to stand in it
+      const squad = free
+        .sort((a, b) => dist2(a.x, a.z, site.x, site.z) - dist2(b.x, b.z, site.x, site.z))
+        .slice(0, 2);
+      if (squad.length === 0) return;
+      const ids = squad.map(u => u.id);
+      this.claimers = ids;
+      w.cmdMove(ids, site.x, site.z, true);
+      return;
+    }
+  }
+
   private offense(tc: Building, military: Unit[]) {
     const w = this.world;
     this.attackers = this.attackers.filter(id => w.units.has(id));
+    this.claimers = this.claimers.filter(id => w.units.has(id));
     const waveSize = this.diff.waveBase + this.diff.waveGrow * this.waveN;
     const ready = military.length;
     const timeUp = w.time >= this.nextWaveAt;

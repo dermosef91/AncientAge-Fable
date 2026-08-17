@@ -15,6 +15,7 @@ import type { World } from '../sim/world';
 import type { GameView } from '../render/view';
 import { bindFullscreenButton, fullscreenSupported } from './fullscreen';
 import { icon } from './icons';
+import { openTechTree } from './techtree';
 import type { InputController } from './input';
 import type { Minimap } from './minimap';
 
@@ -48,6 +49,21 @@ function counterHtml(type: UnitTypeId): string {
     <span class="ck">Strong vs</span> ${names.join(' · ')}</div>`;
 }
 
+/**
+ * A ruined fort's line in the selection panel. Who holds it, and how far along
+ * anyone standing in it has got — the capture is invisible without this.
+ */
+function outpostStatus(w: World, b: Building): string {
+  const site = w.sites.find(s => s.buildingId === b.id);
+  const held = b.owner === 0 ? 'Yours' : b.owner === 1 ? 'Held by the rival' : 'Unclaimed';
+  if (!site) return held;
+  if (site.capture > 0) {
+    const who = site.claimant === 0 ? 'You are claiming it' : 'The rival is claiming it';
+    return `${held} — ${who}, ${Math.floor(site.capture * 100)}%`;
+  }
+  return `${held} — stand in it with no enemy present to claim it`;
+}
+
 /** Cost line: small resource icons followed by their amounts. */
 function costHtml(c: Cost, size = 13): string {
   const parts: string[] = [];
@@ -74,6 +90,7 @@ export class HUD {
   private idleBtn!: HTMLElement;
   private sideRail!: HTMLElement;
   private menuModal: HTMLElement | null = null;
+  private techTree: HTMLElement | null = null;
   private unbindFullscreen: (() => void) | null = null;
   private resEls: Record<string, HTMLElement> = {};
   private objectives: Objective[] = [];
@@ -126,6 +143,9 @@ export class HUD {
     this.ageChip.innerHTML =
       `<span class="age-badge">I</span>
        <span class="age-text"><b class="age-name">Stone Age</b><i class="age-clock">00:00</i></span>`;
+    // The ages are the whole tech tree, so the age chip is where it lives.
+    this.ageChip.title = 'What each age unlocks';
+    this.ageChip.onclick = () => { this.sound.button(); this.openTechTree(); };
     if (fullscreenSupported()) {
       const fsBtn = this.el('button', '', tr, 'fullscreen-btn') as HTMLButtonElement;
       this.unbindFullscreen = bindFullscreenButton(
@@ -389,6 +409,7 @@ export class HUD {
       let sub = def.desc;
       if (!bld.built) sub = `Under construction — <span data-prog>${Math.floor(bld.progress * 100)}%</span>`;
       else if (def.farm) sub = bld.withered ? 'Withered — needs wood to reseed' : `${Math.floor(bld.farmFood)} food remaining`;
+      else if (bld.type === 'outpost') sub = outpostStatus(w, bld);
       else if (def.trains && !enemy) sub = 'Tap the ground to set a rally point';
       html += `<div class="portrait">${thumbImg(buildingThumb(bld.type, w.players[bld.owner].faction, w.players[bld.owner].age), 'pthumb')}</div>
         <div class="info">
@@ -890,6 +911,17 @@ export class HUD {
     overlay.addEventListener('click', e => { if (e.target === overlay) this.closeMenu(); });
     this.root.appendChild(overlay);
     this.menuModal = overlay;
+  }
+
+  /** The tech tree screen, opened from the age chip. Pauses while it is up. */
+  private openTechTree() {
+    if (this.techTree) return;
+    this.cb.setPaused(true);
+    this.techTree = openTechTree(this.world, () => {
+      this.techTree = null;
+      this.cb.setPaused(false);
+    });
+    this.root.appendChild(this.techTree);
   }
 
   private closeMenu() {

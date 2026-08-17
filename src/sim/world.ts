@@ -264,6 +264,48 @@ export class World {
     return b;
   }
 
+  /**
+   * Hand a standing building to a new owner, as when a ruined fort is claimed.
+   * Max HP is recomputed against the new owner's faction and techs, and the
+   * wound it was carrying is preserved as a fraction — taking a fort does not
+   * repair it.
+   */
+  reassignBuilding(b: Building, owner: number) {
+    if (b.owner === owner) return;
+    const def = BUILDINGS[b.type];
+    const frac = b.maxHp > 0 ? b.hp / b.maxHp : 1;
+    if (b.built) {
+      this.noteBuilt(b.owner, b.type, -1);
+      if (def.pop) {
+        const old = this.players[b.owner];
+        old.popCap = Math.max(0, old.popCap - def.pop);
+      }
+    }
+    // Walls gate for their owner, so the pass-through flag has to move too.
+    if (b.type === 'wall') {
+      for (let z = b.cz; z < b.cz + b.size; z++) {
+        for (let x = b.cx; x < b.cx + b.size; x++) {
+          const i = z * MAP_W + x;
+          this.grid[i] &= ~(F_WALL0 | F_WALL1);
+          this.grid[i] |= owner === 0 ? F_WALL0 : F_WALL1;
+        }
+      }
+    }
+    b.owner = owner;
+    b.rally = null;
+    b.queue.length = 0;
+    b.maxHp = this.buildingHp(owner, b.type);
+    b.hp = Math.max(1, Math.round(b.maxHp * frac));
+    if (b.built) {
+      this.noteBuilt(owner, b.type, 1);
+      if (def.pop) {
+        const p = this.players[owner];
+        p.popCap = Math.min(POP_MAX, p.popCap + def.pop);
+      }
+    }
+    this.emit({ t: 'upgrade', id: b.id, owner, bType: b.type, x: b.x, z: b.z });
+  }
+
   /** Keep tcPos pointing at a living town center (used for AI targeting and fleeing). */
   refreshTcPos(owner: number) {
     let fallback: Building | null = null;
