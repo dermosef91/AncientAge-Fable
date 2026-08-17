@@ -194,17 +194,18 @@ function amphora(p: Parts, color: number, x: number, z: number, s = 1) {
 
 // ---------------------------------------------------------------- buildings
 /**
- * Build a building model. `tier` is the owner's age: every epoch dresses the
- * settlement up — trim, planters, banners, braziers and marble as time passes.
+ * Build a building model. `tier` is the owner's settlement level: the camp
+ * tier (0) pitches tents, and every level after that dresses the settlement
+ * up — trim, planters, banners, braziers and marble as the status rises.
  */
 export function buildingGeo(type: BuildingTypeId, faction: Faction, tier = 0): THREE.BufferGeometry {
   return cached(`b_${type}_${faction}_${tier}`, p => {
     const s = STYLE[faction];
     switch (type) {
-      case 'towncenter': towncenter(p, s, faction); break;
-      case 'house': house(p, s, faction); break;
+      case 'towncenter': towncenter(p, s, faction, tier); break;
+      case 'house': house(p, s, faction, tier); break;
       case 'farm': farmBase(p, s, faction); break;
-      case 'storehouse': storehouse(p, s, faction); break;
+      case 'storehouse': storehouse(p, s, faction, tier); break;
       case 'barracks': barracks(p, s, faction); break;
       case 'range': archeryRange(p, s, faction); break;
       case 'siegeworks': siegeWorks(p, s, faction); break;
@@ -226,30 +227,41 @@ export function buildingGeo(type: BuildingTypeId, faction: Faction, tier = 0): T
       default: wildsBuilding(p, type); break; // encounter props (den, camp, …)
     }
     if (!NO_DRESS.has(type)) dress(p, s, tier, BUILDINGS[type].size);
+  }, g => {
+    // The settlement fills out as its status rises: the same building stands
+    // a little broader and taller at every level (footprint stays fixed).
+    if (tier <= 1 || NO_DRESS.has(type)) return;
+    const t = Math.min(tier, 5) - 1;
+    g.scale(1 + t * 0.015, 1 + t * 0.035, 1 + t * 0.015);
+    g.computeVertexNormals();
+    g.computeBoundingSphere();
   });
 }
 
-/** Flat, already-ornamental or wilds types skip the generic age dressing. */
+/** Flat, already-ornamental or wilds types skip the generic status dressing. */
 const NO_DRESS = new Set<BuildingTypeId>([
   'wall', 'farm', 'plaza', 'garden', 'statue', 'den', 'camp', 'cairn', 'pedestal', 'outpost'
 ]);
 
 /**
- * Age dressing: the same building grows prettier every epoch.
- * Tool Age: potted greenery + painted trim. Bronze: banners and gold.
- * Iron: marble border and burning braziers.
+ * Status dressing: the same building grows prettier at every settlement level.
+ * Hamlet: painted trim. Village: potted greenery. Town: banners and gold.
+ * City: marble border and burning braziers. Metropolis: gilded inlays.
  */
 function dress(p: Parts, s: Style, tier: number, size: number) {
   if (tier <= 0) return;
   const h = size / 2 - 0.22;
-  // Tool Age: corner planters + a painted band along the front plinth
-  for (const sx of [-1, 1]) {
-    p.cyl(0x9c6a44, 0.09, 0.07, 0.14, sx * h, 0.07, h, { seg: 6 });
-    p.sphere(PAL.olive, 0.13, sx * h, 0.2, h, { sy: 0.75 });
-  }
+  // Hamlet: a painted band along the front plinth
   p.box(s.accent, size * 0.86, 0.05, 0.07, 0, 0.14, size / 2 - 0.05);
   if (tier >= 2) {
-    // Bronze Age: banner poles + gold trim on the plinth band
+    // Village: potted greenery on the front corners
+    for (const sx of [-1, 1]) {
+      p.cyl(0x9c6a44, 0.09, 0.07, 0.14, sx * h, 0.07, h, { seg: 6 });
+      p.sphere(PAL.olive, 0.13, sx * h, 0.2, h, { sy: 0.75 });
+    }
+  }
+  if (tier >= 3) {
+    // Town: banner poles + gold trim on the plinth band
     for (const sx of [-1, 1]) {
       flagpole(p, sx * h, 0.12, -h, 1.2);
       p.box(s.accent, 0.05, 0.3, 0.3, sx * h, 1.08, -h + 0.16);
@@ -257,8 +269,8 @@ function dress(p: Parts, s: Style, tier: number, size: number) {
     }
     p.box(PAL.gold, size * 0.86, 0.03, 0.05, 0, 0.185, size / 2 - 0.04);
   }
-  if (tier >= 3) {
-    // Iron Age: marble edging + braziers burning at the door
+  if (tier >= 4) {
+    // City: marble edging + braziers burning at the door
     p.box(PAL.white, size * 0.99, 0.05, size * 0.99, 0, 0.03, 0, { shade: 1.05 });
     for (const sx of [-1, 1]) {
       const bx = sx * (h - 0.42);
@@ -266,6 +278,17 @@ function dress(p: Parts, s: Style, tier: number, size: number) {
       p.cyl(0x5a4632, 0.11, 0.08, 0.1, bx, 0.48, h, { seg: 6 });
       p.sphere(0xe0813c, 0.09, bx, 0.56, h, { seg: 5 });
       p.sphere(PAL.goldBright, 0.055, bx, 0.64, h, { seg: 4 });
+    }
+  }
+  if (tier >= 5) {
+    // Metropolis: gold inlay framing the marble border, second banner on the poles
+    const m = size * 0.48;
+    for (const sd of [-1, 1]) {
+      p.box(PAL.gold, size * 0.96, 0.025, 0.05, 0, 0.062, sd * m);
+      p.box(PAL.gold, 0.05, 0.025, size * 0.96, sd * m, 0.062, 0);
+    }
+    for (const sx of [-1, 1]) {
+      p.box(PAL.goldBright, 0.34, 0.2, 0.028, sx * h, 0.84, -h + 0.16);
     }
   }
 }
@@ -278,7 +301,87 @@ export const BUILDING_VIS_HEIGHT: Record<BuildingTypeId, number> = {
   den: 1.2, camp: 1.7, cairn: 0.8, pedestal: 1.3, outpost: 2.2
 };
 
-function towncenter(p: Parts, s: Style, f: Faction) {
+// ------------------------------------------------- camp-tier structures
+/** Pyramid hide tent with crossed ridge poles and a painted hem; door faces +z. */
+function hideTent(p: Parts, s: Style, x: number, z: number, k = 1, ry = 0) {
+  p.cone(s.accent, 0.74 * k, 0.26 * k, x, 0.13 * k, z, { seg: 5, ry, shade: 0.9 });
+  p.cone(PAL.cloth, 0.7 * k, 1.0 * k, x, 0.52 * k, z, { seg: 5, ry, shade: 1.02 });
+  // crossed poles poking through the peak
+  p.cyl(PAL.woodDark, 0.018, 0.018, 0.42 * k, x, 1.0 * k, z, { seg: 4, rz: 0.4 });
+  p.cyl(PAL.woodDark, 0.018, 0.018, 0.42 * k, x, 1.0 * k, z, { seg: 4, rz: -0.4 });
+  // shadowed door flap leaning with the canvas
+  p.box(0x4a3826, 0.26 * k, 0.42 * k, 0.05, x, 0.21 * k, z + 0.5 * k, { rx: -0.55 });
+}
+
+/** Stone-ringed cooking fire with crossed logs and a low flame. */
+function campfire(p: Parts, x: number, z: number, k = 1) {
+  for (let i = 0; i < 6; i++) {
+    const a = i * (Math.PI / 3) + 0.3;
+    p.sphere(PAL.rock, 0.075 * k, x + Math.cos(a) * 0.3 * k, 0.05 * k, z + Math.sin(a) * 0.3 * k, { seg: 4 });
+  }
+  p.cyl(PAL.woodDark, 0.03 * k, 0.035 * k, 0.44 * k, x, 0.08 * k, z, { seg: 4, rx: Math.PI / 2 - 0.15 });
+  p.cyl(PAL.woodDark, 0.03 * k, 0.035 * k, 0.44 * k, x, 0.08 * k, z, { seg: 4, rz: Math.PI / 2 - 0.15 });
+  p.cone(0xe0813c, 0.13 * k, 0.3 * k, x, 0.2 * k, z, { seg: 5 });
+  p.cone(0xf5c04a, 0.07 * k, 0.2 * k, x, 0.28 * k, z, { seg: 4 });
+}
+
+/** Camp town center: the chieftain's marquee, cooking fire, family tents. */
+function tcCamp(p: Parts, s: Style) {
+  // trampled earth
+  p.cyl(PAL.dirt, 1.92, 1.98, 0.09, 0, 0.045, 0, { seg: 12 });
+  p.cyl(0x8f7150, 1.5, 1.56, 0.05, 0, 0.11, 0, { seg: 12, shade: 0.97 });
+  // marquee: tall canvas cone on a center pole over a painted skirt
+  p.cone(s.accent, 1.5, 0.5, 0, 0.35, -0.35, { seg: 8, shade: 0.92 });
+  p.cone(PAL.cloth, 1.42, 1.9, 0, 1.12, -0.35, { seg: 8, shade: 1.03 });
+  p.cyl(PAL.woodDark, 0.035, 0.045, 2.25, 0, 1.12, -0.35, { seg: 5 });
+  flagpole(p, 0, 2.15, -0.35, 0.55, s.accent);
+  // door flap + canvas porch on poles
+  p.box(0x4a3826, 0.5, 0.85, 0.07, 0, 0.45, 0.75, { rx: -0.45 });
+  p.box(PAL.cloth, 1.15, 0.05, 0.85, 0, 1.0, 1.15, { rx: 0.16, shade: 1.05 });
+  for (const sx of [-1, 1]) p.cyl(PAL.woodDark, 0.024, 0.03, 0.95, sx * 0.52, 0.48, 1.5, { seg: 4 });
+  // guy ropes staked at the back
+  for (const sx of [-1, 1]) {
+    p.cyl(0xcbb894, 0.012, 0.012, 1.0, sx * 1.35, 0.5, -1.1, { seg: 3, rx: -0.35, rz: sx * 0.55 });
+  }
+  // cooking fire, family tents, supplies
+  campfire(p, 1.25, 0.95);
+  hideTent(p, s, -1.35, -1.2, 0.8, 0.5);
+  hideTent(p, s, 1.35, -1.15, 0.72, -0.7);
+  crates(p, -1.25, 0.85, 0.85);
+  basket(p, -0.85, 1.25);
+  basket(p, 1.7, -0.1, 0.9);
+}
+
+/** Hamlet/Village town center: a timber great hall under a thatch roof. */
+function tcTimberHall(p: Parts, s: Style) {
+  const thatch = { roof: 0xc2a05c };
+  // packed plinth
+  p.box(PAL.sandLight, 3.9, 0.2, 3.9, 0, 0.1, 0);
+  p.box(PAL.dirt, 3.5, 0.12, 3.5, 0, 0.26, 0);
+  // great hall: log walls with dark course seams
+  p.box(PAL.wood, 2.9, 1.15, 2.15, 0, 0.88, -0.4);
+  for (let i = 0; i < 3; i++) {
+    p.box(PAL.woodDark, 2.94, 0.045, 2.19, 0, 0.55 + i * 0.34, -0.4, { shade: 0.92 });
+  }
+  gabledRoof(p, thatch, 3.3, 0.95, 2.6, 0, 1.46, -0.4);
+  // door with a small canvas porch
+  doorway(p, 0x3a2c1c, 0.55, 0.8, 0, 0.32, 0.68, { frame: PAL.woodDark });
+  steps(p, PAL.sandLight, 0.9, 0, 0, 1.7);
+  p.box(PAL.cloth, 1.1, 0.05, 0.75, 0, 1.14, 1.05, { rx: 0.2, shade: 1.04 });
+  for (const sx of [-1, 1]) p.cyl(PAL.woodDark, 0.022, 0.028, 1.05, sx * 0.5, 0.52, 1.38, { seg: 4 });
+  win(p, PAL.woodDark, -0.95, 0.95, 0.68);
+  win(p, PAL.woodDark, 0.95, 0.95, 0.68);
+  // faction banners by the door + a standard at the corner
+  wallBanner(p, s, -0.62, 1.3, 0.7);
+  wallBanner(p, s, 0.62, 1.3, 0.7);
+  flagpole(p, 1.45, 0.32, 1.45, 1.5, s.accent);
+  crates(p, -1.35, 1.1, 0.9);
+  basket(p, -0.95, 1.4);
+}
+
+function towncenter(p: Parts, s: Style, f: Faction, tier = 0) {
+  if (tier <= 0) { tcCamp(p, s); return; }
+  if (tier <= 2) { tcTimberHall(p, s); return; }
   // base plinth
   p.box(PAL.sandLight, 3.9, 0.22, 3.9, 0, 0.11, 0, { shade: 1.02 });
   p.box(s.wallDark, 3.5, 0.14, 3.5, 0, 0.29, 0);
@@ -376,7 +479,19 @@ function towncenter(p: Parts, s: Style, f: Faction) {
   }
 }
 
-function house(p: Parts, s: Style, f: Faction) {
+/** Camp house: a family tent with firewood and a basket. */
+function houseCamp(p: Parts, s: Style) {
+  p.cyl(PAL.dirt, 0.95, 1.0, 0.07, 0, 0.035, 0, { seg: 10 });
+  hideTent(p, s, 0, -0.12, 1.05, 0.35);
+  basket(p, 0.62, 0.52, 0.9);
+  // firewood stacked beside the door
+  p.cyl(PAL.woodDark, 0.05, 0.055, 0.5, -0.6, 0.06, 0.45, { seg: 5, rx: Math.PI / 2 - 0.1 });
+  p.cyl(PAL.wood, 0.045, 0.05, 0.44, -0.68, 0.05, 0.35, { seg: 5, rx: Math.PI / 2 + 0.15 });
+  p.cyl(PAL.woodDark, 0.04, 0.045, 0.4, -0.62, 0.14, 0.4, { seg: 5, rx: Math.PI / 2 });
+}
+
+function house(p: Parts, s: Style, f: Faction, tier = 0) {
+  if (tier <= 0) { houseCamp(p, s); return; }
   p.box(PAL.sandLight, 1.85, 0.14, 1.85, 0, 0.07, 0);
   if (f === 'egypt') {
     p.box(s.wall, 1.45, 0.9, 1.45, 0, 0.58, 0);
@@ -488,7 +603,22 @@ export function cropGeo(faction: Faction, withered: boolean): THREE.BufferGeomet
   });
 }
 
-function storehouse(p: Parts, s: Style, f: Faction) {
+/** Camp storehouse: an open-air cache under a hide canopy. */
+function storeCamp(p: Parts, s: Style) {
+  p.box(PAL.dirt, 1.7, 0.09, 1.7, 0, 0.045, 0);
+  for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
+    const h = sz > 0 ? 0.8 : 1.0;
+    p.cyl(PAL.woodDark, 0.028, 0.034, h, sx * 0.62, h / 2 + 0.05, sz * 0.58, { seg: 4 });
+  }
+  p.box(PAL.cloth, 1.62, 0.05, 1.5, 0, 0.96, 0, { rx: 0.13, shade: 1.03 });
+  crates(p, -0.32, 0.1, 0.95);
+  basket(p, 0.48, 0.34);
+  basket(p, 0.42, -0.38, 0.85);
+  amphora(p, 0xb5744a, -0.55, -0.45, 0.9);
+}
+
+function storehouse(p: Parts, s: Style, f: Faction, tier = 0) {
+  if (tier <= 0) { storeCamp(p, s); return; }
   p.box(PAL.sandLight, 1.85, 0.14, 1.85, 0, 0.07, 0);
   if (f === 'egypt') {
     // granary domes with masonry rings and a ladder to the hatch
@@ -733,8 +863,8 @@ function wallSeg(p: Parts, s: Style, f: Faction, tier = 0) {
     p.box(PAL.wood, 0.06, 0.6, 0.05, sz * 0.5, 0.3, 0.12);
     p.box(0x4a3a26, 0.05, 0.07, 0.52, sz * 0.5, 0.64, 0);
   }
-  if (tier >= 2) {
-    // Bronze Age masonry: a taller stone crown
+  if (tier >= 3) {
+    // Town masonry: a taller stone crown
     p.box(s.wallDark, 1.0, 0.16, 1.0, 0, 1.36, 0);
     crenellations(p, s.wallDark, 1.02, 1.56, 0, 2);
   }
@@ -1658,6 +1788,27 @@ function emptyBasket(p: Parts) {
 }
 
 /**
+ * The wicker back-basket a villager straps on for timber and ore. Built in the
+ * villager's own frame — +z is the way they face — with the origin at the spot
+ * between the shoulder blades where it is mounted, so the basket rides behind
+ * the back and the straps come over the shoulders.
+ */
+export function packGeo(): THREE.BufferGeometry {
+  return cached('pack', p => {
+    const z = -0.11; // stand-off from the spine, clear of the back
+    p.cyl(0xa8834f, 0.15, 0.115, 0.29, 0, -0.05, z, { seg: 6, sz: 0.62 });
+    p.cyl(0x8a6a3e, 0.162, 0.155, 0.04, 0, 0.1, z, { seg: 6, sz: 0.64 });                    // rim
+    p.cyl(0x93744a, 0.147, 0.143, 0.028, 0, -0.03, z, { seg: 6, sz: 0.64, shade: 0.9 });     // weave bands
+    p.cyl(0x93744a, 0.132, 0.128, 0.028, 0, -0.13, z, { seg: 6, sz: 0.64, shade: 0.9 });
+    for (const sx of [-1, 1]) {
+      // one strap per side: up off the rim, over the shoulder, down the chest
+      p.box(LASH, 0.042, 0.13, 0.028, sx * 0.075, 0.13, z + 0.05, { rx: 1.04 });
+      p.box(LASH, 0.042, 0.21, 0.028, sx * 0.08, 0.065, 0.03, { rx: -0.4, shade: 0.94 });
+    }
+  });
+}
+
+/**
  * A villager's working tool. Same convention as the weapons: the grip sits at
  * the origin with the haft running up +y and the business end facing +z, so a
  * tool can be dropped into either the procedural unit or a rigged hand bone.
@@ -1704,12 +1855,18 @@ export function toolGeo(kind: ToolKind): THREE.BufferGeometry {
   });
 }
 
-/** The load a villager walks home with — the food kinds ride in a basket. */
+/**
+ * The load a villager walks home with. Food rides in the hand basket, which
+ * hangs below the origin; timber and ore ride in the back-basket, so those are
+ * built heaped above the origin — the pack's mouth — in the villager's frame.
+ */
 export function carryGeo(kind: NodeKind): THREE.BufferGeometry {
   return cached(`c_${kind}`, p => {
     if (kind === 'tree') {
-      p.cyl(PAL.trunk, 0.05, 0.05, 0.42, 0, 0, 0, { seg: 5, rz: Math.PI / 2, ry: 0.3 });
-      p.cyl(PAL.trunk, 0.045, 0.045, 0.38, 0, 0.08, 0.03, { seg: 5, rz: Math.PI / 2, ry: -0.2, shade: 0.9 });
+      // cut logs stood on end in the pack, tops above the rim
+      p.cyl(PAL.trunk, 0.045, 0.045, 0.38, -0.055, 0.06, -0.11, { seg: 5, rx: 0.14, rz: 0.16 });
+      p.cyl(PAL.trunk, 0.04, 0.04, 0.33, 0.055, 0.03, -0.13, { seg: 5, rx: -0.1, rz: -0.2, shade: 0.9 });
+      p.cyl(0x7d5c3c, 0.038, 0.038, 0.3, 0.005, 0.05, -0.06, { seg: 5, rx: 0.2, rz: -0.06, shade: 1.06 });
     } else if (kind === 'berries' || kind === 'fish' || kind === 'carcass') {
       // the forager's basket, now heaped with the catch
       emptyBasket(p);
@@ -1726,11 +1883,17 @@ export function carryGeo(kind: NodeKind): THREE.BufferGeometry {
         p.box(0xbd6b58, 0.07, 0.05, 0.1, 0.02, -0.05, 0.02, { ry: -0.4, shade: 1.05 });
       }
     } else if (kind === 'stone') {
-      p.ico(PAL.stone, 0.11, 0, 0.02, 0);
-      p.ico(PAL.stoneLight, 0.07, 0.07, 0.08, 0.03);
+      // quarried blocks heaped over the mouth of the pack
+      p.ico(PAL.stone, 0.115, -0.04, 0.03, -0.11);
+      p.ico(PAL.stoneLight, 0.085, 0.06, 0.06, -0.13, { ry: 1 });
+      p.ico(PAL.rock, 0.07, 0.01, 0.09, -0.06, { ry: 2, shade: 0.94 });
     } else {
-      p.ico(0xa8946a, 0.1, 0, 0.02, 0);
-      p.sphere(PAL.goldBright, 0.05, 0.05, 0.08, 0.02, { seg: 5 });
+      // ore chunks with the gold showing, heaped high enough to clear the rim
+      p.ico(0x8d7f66, 0.11, -0.045, 0.05, -0.11);
+      p.ico(0x7e7059, 0.085, 0.06, 0.08, -0.13, { ry: 1, shade: 0.95 });
+      p.sphere(PAL.goldBright, 0.062, 0.0, 0.14, -0.08, { seg: 5 });
+      p.sphere(PAL.gold, 0.048, 0.08, 0.14, -0.13, { seg: 5 });
+      p.sphere(PAL.goldBright, 0.042, -0.075, 0.15, -0.14, { seg: 5, shade: 1.06 });
     }
   });
 }

@@ -1,7 +1,7 @@
 // Fixed-timestep simulation: unit task state machines, gathering, construction,
 // combat, projectiles, fog. Deterministic given the same command stream.
 import {
-  AGES, BUILDINGS, ENC, FARM_FOOD, FARM_RESEED_COST, MAP_W, POP_MAX, RES_ORDER,
+  BUILDINGS, ENC, FARM_FOOD, FARM_RESEED_COST, MAP_W, POP_MAX, RES_ORDER, SETTLEMENTS,
   SIEGE_UNITS, TECHS, TRADE_BASE_GOLD, TRADE_GOLD_PER_TILE, UNITS, WILDS, WONDER_COUNTDOWN
 } from '../core/config';
 import type {
@@ -134,11 +134,11 @@ function updateBuildings(world: World, dt: number) {
           }
         } else if (q.kind === 'research' && q.tech) {
           applyResearch(world, b.owner, q.tech);
-        } else if (q.kind === 'age' && q.age !== undefined) {
-          p.age = Math.max(p.age, q.age);
-          world.emit({ t: 'age', owner: b.owner, age: p.age });
+        } else if (q.kind === 'level' && q.level !== undefined) {
+          p.level = Math.max(p.level, q.level);
+          world.emit({ t: 'levelup', owner: b.owner, level: p.level });
           if (b.owner === 0) {
-            world.emit({ t: 'toast', owner: 0, msg: `The ${AGES[p.age].name} begins`, kind: 'good' });
+            world.emit({ t: 'toast', owner: 0, msg: `Your settlement grows into a ${SETTLEMENTS[p.level].name}`, kind: 'good' });
           }
         } else if (q.kind === 'upgrade' && q.to) {
           // in-place transformation (shrine -> temple)

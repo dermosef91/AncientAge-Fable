@@ -2,7 +2,7 @@
 // escalating attack waves. Issues orders through the same command API
 // as the player.
 import {
-  AGES, BUILDINGS, DIFFICULTY, MAX_AGE, SIEGE_UNITS, trainableAt, UNITS
+  BUILDINGS, DIFFICULTY, MAX_LEVEL, SETTLEMENTS, SIEGE_UNITS, trainableAt, UNITS
 } from '../core/config';
 import type { Building, Difficulty, NodeKind, ResType, Unit, UnitTypeId } from '../core/types';
 import { RES_OF_NODE } from '../core/types';
@@ -10,8 +10,8 @@ import { dist, dist2 } from '../core/utils';
 import type { World } from './world';
 
 const OWNER = 1;
-/** Villagers the AI wants working before it commits to each age. */
-const AI_AGE_VILLAGERS = [0, 7, 10, 13];
+/** Villagers the AI wants working before it commits to each settlement level. */
+const AI_LEVEL_VILLAGERS = [0, 5, 7, 10, 13, 15];
 
 export class AIController {
   private acc = 0;
@@ -46,9 +46,9 @@ export class AIController {
     const buildings = [...w.buildings.values()].filter(b => b.owner === OWNER);
 
     this.defense(tc, military);
-    // Ages get first claim on the town center queue, otherwise villager
-    // production would keep it busy forever and the AI would never advance.
-    this.ageUp(tc, villagers.length);
+    // Settlement growth gets first claim on the town center queue, otherwise
+    // villager production would keep it busy forever and the AI would never advance.
+    this.levelUp(tc, villagers.length);
     this.economy(tc, villagers, buildings);
     this.construction(tc, villagers, buildings);
     this.trainMilitary(buildings, military.length);
@@ -103,11 +103,11 @@ export class AIController {
     const w = this.world;
     const p = w.players[OWNER];
 
-    // Train villagers — but stop once we have the workers for the next age,
-    // so the treasury can actually reach the age cost.
-    const saving = p.age < MAX_AGE
-      && villagers.length >= AI_AGE_VILLAGERS[p.age + 1]
-      && !w.canAfford(OWNER, AGES[p.age + 1].cost);
+    // Train villagers — but stop once we have the workers for the next level,
+    // so the treasury can actually reach the settlement upgrade cost.
+    const saving = p.level < MAX_LEVEL
+      && villagers.length >= AI_LEVEL_VILLAGERS[p.level + 1]
+      && !w.canAfford(OWNER, SETTLEMENTS[p.level + 1].cost);
     if (!saving && villagers.length < this.diff.aiVillagers && tc.built && tc.queue.length === 0) {
       w.startTrain(tc.id, 'villager');
     }
@@ -187,19 +187,19 @@ export class AIController {
     return false;
   }
 
-  // ---------------- ages ----------------
-  /** Advance as soon as the economy can carry it — ages gate the AI's army. */
-  private ageUp(tc: Building, villagers: number) {
+  // ---------------- settlement growth ----------------
+  /** Level up as soon as the economy can carry it — levels gate the AI's army. */
+  private levelUp(tc: Building, villagers: number) {
     const w = this.world;
     const p = w.players[OWNER];
-    if (p.age >= MAX_AGE) return;
+    if (p.level >= MAX_LEVEL) return;
     if (tc.queue.length > 0) return;
-    // enough workers to keep income flowing while banking for the next age
-    const need = AI_AGE_VILLAGERS[p.age + 1] ?? 12;
+    // enough workers to keep income flowing while banking for the upgrade
+    const need = AI_LEVEL_VILLAGERS[p.level + 1] ?? 12;
     if (villagers < need) return;
-    const cost = AGES[p.age + 1].cost;
+    const cost = SETTLEMENTS[p.level + 1].cost;
     if (!w.canAfford(OWNER, cost)) return;
-    w.startAge(tc.id);
+    w.startLevelUp(tc.id);
   }
 
   // ---------------- construction ----------------
@@ -234,14 +234,14 @@ export class AIController {
       if (place('house', tc.x + 5, tc.z - 4)) return;
     }
     // Barracks
-    if (p.age >= 1 && has('barracks') === 0) {
+    if (p.level >= 1 && has('barracks') === 0) {
       if (place('barracks', tc.x - 6, tc.z + 5)) return;
     }
     if (has('barracks') === 1 && t > 420 && p.res.wood > 160) {
       if (place('barracks', tc.x + 7, tc.z + 6)) return;
     }
     // Archery range
-    if (p.age >= 1 && has('range') === 0 && (t > 170 || p.res.wood >= 190)) {
+    if (p.level >= 2 && has('range') === 0 && (t > 170 || p.res.wood >= 190)) {
       if (place('range', tc.x + 6, tc.z + 5)) return;
     }
     // Farms when berries run dry
@@ -262,38 +262,38 @@ export class AIController {
       }
     }
     // Defensive tower toward the player
-    if (p.age >= 2 && t > 280 && has('tower') < 2 && p.res.stone >= 85) {
+    if (p.level >= 3 && t > 280 && has('tower') < 2 && p.res.stone >= 85) {
       const dir = Math.atan2(w.tcPos[0].z - tc.z, w.tcPos[0].x - tc.x);
       if (place('tower', tc.x + Math.cos(dir) * 9, tc.z + Math.sin(dir) * 9)) return;
     }
     // Siege workshop — once the player fortifies, or late enough that the
     // town centers themselves are the problem.
-    if (p.age >= 2 && has('siegeworks') === 0 && p.res.wood >= 150 && p.res.stone >= 100 &&
+    if (p.level >= 3 && has('siegeworks') === 0 && p.res.wood >= 150 && p.res.stone >= 100 &&
         (this.playerFortifications() >= 2 || t > 620)) {
       if (place('siegeworks', tc.x - 5, tc.z + 7)) return;
     }
     // Monument when rich (hard mode flex)
-    if (p.age >= 2 && t > 500 && has('monument') === 0 && p.res.stone > 160 && p.res.gold > 180) {
+    if (p.level >= 4 && t > 500 && has('monument') === 0 && p.res.stone > 160 && p.res.gold > 180) {
       if (place('monument', tc.x - 7, tc.z - 6)) return;
     }
     // Amphitheater: the games sharpen every blade (+30% damage)
-    if (p.age >= 2 && t > 560 && has('amphitheater') === 0 &&
+    if (p.level >= 4 && t > 560 && has('amphitheater') === 0 &&
         p.res.wood > 220 && p.res.stone > 170 && p.res.gold > 150) {
       if (place('amphitheater', tc.x + 8, tc.z - 5)) return;
     }
     // A late, rich AI reaches for a Wonder of its own
-    if (p.age >= 3 && t > 780 && has('wonder') === 0 &&
+    if (p.level >= 5 && t > 780 && has('wonder') === 0 &&
         p.res.wood > 340 && p.res.stone > 390 && p.res.gold > 340) {
       if (place('wonder', tc.x - 8, tc.z - 8)) return;
     }
-    // Research when comfortable (never at the cost of the next age)
+    // Research when comfortable (never at the cost of the next level)
     if (p.res.food > 320 && p.res.gold > 170) {
       const bar = buildings.find(b => b.type === 'barracks' && b.built && b.queue.length === 0);
       if (bar) {
         if (!p.techs.has('bronze')) w.startResearch(bar.id, 'bronze');
         else if (!p.techs.has('shields')) w.startResearch(bar.id, 'shields');
       }
-      if (tc.queue.length === 0 && p.age >= MAX_AGE && !p.techs.has('wheel')) {
+      if (tc.queue.length === 0 && p.level >= 2 && !p.techs.has('wheel')) {
         w.startResearch(tc.id, 'wheel');
       }
     }
@@ -330,7 +330,7 @@ export class AIController {
   private trainMilitary(buildings: Building[], armySize: number) {
     const w = this.world;
     const p = w.players[OWNER];
-    const cap = Math.min(22, 6 + this.waveN * 4);
+    const cap = Math.min(18, 5 + this.waveN * 3);
     if (armySize >= cap) return;
     const siegeCount = [...w.units.values()]
       .filter(u => u.owner === OWNER && SIEGE_UNITS.has(u.type)).length;
@@ -341,7 +341,7 @@ export class AIController {
       // Siege is a specialist tool, not a doctrine: keep a couple, no more.
       // They are slow and pop-hungry, and a wave of them alone would just die.
       if (b.type === 'siegeworks' && (siegeCount >= 2 || armySize < 6)) continue;
-      const options = trainableAt(p.faction, b.type, p.age).filter(u => u !== 'boat');
+      const options = trainableAt(p.faction, b.type, p.level).filter(u => u !== 'boat');
       if (options.length === 0) continue;
       // Prefer elites when affordable, fall back to basics if that fails
       const elite = options.find(o => o !== 'spearman' && o !== 'archer');
@@ -388,8 +388,10 @@ export class AIController {
     const waveSize = this.diff.waveBase + this.diff.waveGrow * this.waveN;
     const ready = military.length;
     const timeUp = w.time >= this.nextWaveAt;
-    const overflowing = ready >= Math.min(20, waveSize * 2.4);
-    const lateGame = w.time > 900 && ready >= 10 && this.attackers.length === 0;
+    // Overflow attacks only between scheduled waves — never before the first one,
+    // or a small waveBase would trigger a rush long before firstWave.
+    const overflowing = this.waveN > 0 && ready >= Math.min(20, waveSize * 2.4);
+    const lateGame = w.time > 1100 && ready >= 12 && this.attackers.length === 0;
 
     if ((timeUp && ready >= Math.min(waveSize, 22)) || overflowing || lateGame) {
       this.waveN++;

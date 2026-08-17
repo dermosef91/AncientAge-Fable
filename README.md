@@ -1,8 +1,8 @@
 # Ancient Age
 
 A polished, mobile-first 3D real-time strategy game in the spirit of the classics.
-Choose Egypt, Greece, or Rome and race a scheming AI rival from three villagers to
-a thriving empire — win by conquest, or raise a Wonder and defend it.
+Choose Egypt, Greece, or Rome and race a scheming AI rival from a camp of tents
+to a thriving metropolis — win by conquest, or raise a Wonder and defend it.
 
 Every match generates a fresh world: a random archetype (open coast, island
 chains, lake lands, or a great river with fords) painted with biomes — desert,
@@ -28,25 +28,34 @@ Open on a phone (landscape) or desktop browser.
 1. Pick a civilization and difficulty, then **To Battle**.
 2. Tap a villager → tap berries/trees/stone/gold to gather. Villagers carry
    what they harvest back to your Town Center or Storehouse.
-3. Select the Town Center and **advance an age** — this is what unlocks your
-   military and your best buildings.
+3. Select the Town Center and **grow your settlement** — camp to hamlet to
+   village and beyond. Status is what unlocks your military and your best
+   buildings.
 4. Tap **Build** to raise houses (population), farms, barracks, towers, walls,
    docks, and your civilization's monument.
 5. Train soldiers, research technologies, and scout the map.
 6. Find the enemy town, weather their raids, and **destroy every Town Center
-   they hold** — or raise a **Wonder** in the Iron Age and keep it standing.
+   they hold** — or raise a **Wonder** as a Metropolis and keep it standing.
 
-### The four ages
+### Settlement levels
 
-| Age | Cost | Unlocks |
+You begin as a **camp**: a chieftain's marquee among hide tents. Each upgrade,
+started at the Town Center, raises your settlement's status and unlocks more
+of the game.
+
+| Level | Cost | Unlocks |
 | --- | --- | --- |
-| Stone | — | House, Farm, Storehouse, Wall, Dock, Garden, Plaza, Villagers |
-| Tool | 150 food | Barracks, Archery Range, Market, Shrine, Statue, Spearman, Archer, Trade Cart, The Wheel |
-| Bronze | 260 food, 70 gold | Elite unit, **Siege Workshop**, Watch Tower, Temple, Academy, Amphitheater, Forum, Lighthouse, Monument, extra Town Centers, Masonry, Bronze Arms |
-| Iron | 460 food, 200 gold | **The Wonder**, Hardened Shields, Coinage, Logistics |
+| I — Camp | — | House, Farm, Storehouse, Dock, Villagers, Fishing Boats |
+| II — Hamlet | 100 food | Barracks, Wall, Garden, Spearman |
+| III — Village | 190 food, 80 wood | Archery Range, Market, Shrine, Statue, Plaza, Archer, Trade Cart, The Wheel |
+| IV — Town | 300 food, 100 gold | Elite unit, **Siege Workshop**, Watch Tower, Academy, Forum, extra Town Centers, Masonry, Bronze Arms, Irrigation, Medicine |
+| V — City | 460 food, 190 gold, 100 stone | Temple, Amphitheater, Lighthouse, Monument, Coinage, Logistics |
+| VI — Metropolis | 650 food, 320 gold, 200 stone | **The Wonder**, Hardened Shields |
 
-Every epoch also rebuilds your skyline: standing buildings gain trim, planters,
-banners, gold and braziers as the ages pass.
+Every level also rebuilds your skyline. Tents give way to timber halls, timber
+to stone, and standing buildings grow a little taller and richer with every
+step — gaining painted trim, planters, banners, gold, braziers and marble as
+your status rises.
 
 ### Counters, armor and siege
 
@@ -91,7 +100,7 @@ you could once ignore now needs an answer.
   enemies still have to break them down.
 - **Shrine → Temple** — heals nearby units; upgrade it in place for a far
   stronger aura. Research **Medicine** to double it.
-- **Siege Workshop** *(Bronze Age)* — engineers build Battering Rams and
+- **Siege Workshop** *(Town)* — engineers build Battering Rams and
   Catapults. The way through a fortified town.
 - **Amphitheater** — while it stands, all your units deal +30% damage.
 - **Academy** — researches Irrigation, Medicine, Coinage and Logistics.
@@ -99,15 +108,15 @@ you could once ignore now needs an answer.
   automatically along presets you pick (Balanced / Growth / Treasury).
 - **Lighthouse** — boats gather 30% faster, sail 20% faster.
 - **Statue, Garden, Plaza** — beautify your city; plazas are walkable paving.
-- **Wonder** *(Iron Age)* — complete it and defend it for three minutes to win
+- **Wonder** *(Metropolis)* — complete it and defend it for three minutes to win
   without razing a single town center. The enemy will come with everything.
 
 Placement is deliberate now: tap to move the ghost, rotate it (⟳ or **R**),
 then confirm with **Build** (walls still place instantly, tap-tap-tap).
 
-Tap the **age chip** in the top right to open **the tech tree** — every age
-side by side with what it unlocks, what each thing costs, and what you have
-already researched. Worth a look before committing 460 food to the Iron Age.
+Tap the **settlement chip** in the top right to open **the tech tree** — all
+six levels side by side with what each unlocks, what everything costs, and what
+you have already researched. Worth a look before paying for the next level.
 
 ### The wilds
 
@@ -201,7 +210,9 @@ radiating from the villa.
   site, a hand net at the fishing shallows and a basket while foraging. The
   tools are procedural geometry parented to the rig's hand bones (the basket
   is kept level as the arm swings) and swap as orders change, so the load a
-  villager hauls home matches what they were just doing.
+  villager hauls home matches what they were just doing. Timber and ore are
+  too heavy for a hand: those jobs also strap on a wicker back-basket, and the
+  logs, blocks and ore ride in it.
 - **Buildings burn while they are under attack** and for a few seconds after
   the last blow lands. The fire takes hold faster the worse the damage, with
   flame licks pinned up the walls, across the roof and at the foundations, a
@@ -209,5 +220,5 @@ radiating from the villa.
   until it goes out. Flames and smoke are camera-facing sprites sized in world
   units, batched into two draw calls (`src/render/effects.ts`).
 - Fog of war, minimap, pooled particles, procedural WebAudio sound,
-  and an AI that runs its own economy, advances ages, expands, defends,
+  and an AI that runs its own economy, grows its settlement, expands, defends,
   and raids through the same command API the player uses.

@@ -92,7 +92,7 @@ img.thumb, img.bthumb, img.pthumb, img.chip-thumb, img.qthumb, img.act-thumb, im
   right: calc(8px + var(--sar));
   display: flex; gap: 6px; align-items: stretch;
 }
-#age-chip {
+#settlement-chip {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -100,7 +100,7 @@ img.thumb, img.bthumb, img.pthumb, img.chip-thumb, img.qthumb, img.act-thumb, im
   box-shadow: var(--shadow);
   display: flex; align-items: center; gap: 8px;
 }
-#age-chip .age-badge {
+#settlement-chip .lvl-badge {
   width: 30px; height: 30px;
   border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
@@ -110,9 +110,9 @@ img.thumb, img.bthumb, img.pthumb, img.chip-thumb, img.qthumb, img.act-thumb, im
   border: 1.5px solid rgba(224, 176, 84, 0.75);
   box-shadow: inset 0 1px 2px rgba(255, 226, 168, 0.35);
 }
-#age-chip .age-text { display: flex; flex-direction: column; line-height: 1.2; }
-#age-chip .age-name { font-size: 12.5px; font-weight: 700; color: var(--gold); letter-spacing: 0.3px; }
-#age-chip .age-clock { font-size: 11.5px; color: var(--text-dim); font-variant-numeric: tabular-nums; font-style: normal; }
+#settlement-chip .lvl-text { display: flex; flex-direction: column; line-height: 1.2; }
+#settlement-chip .lvl-name { font-size: 12.5px; font-weight: 700; color: var(--gold); letter-spacing: 0.3px; }
+#settlement-chip .lvl-clock { font-size: 11.5px; color: var(--text-dim); font-variant-numeric: tabular-nums; font-style: normal; }
 #menu-btn {
   width: 46px;
   box-shadow: var(--shadow);
@@ -306,7 +306,7 @@ img.thumb, img.bthumb, img.pthumb, img.chip-thumb, img.qthumb, img.act-thumb, im
   padding: 2px;
 }
 .qslot img { width: 100%; height: 100%; object-fit: contain; }
-.qslot .qage { font-size: 15px; font-weight: 800; color: var(--gold); }
+.qslot .qlvl { font-size: 15px; font-weight: 800; color: var(--gold); }
 .qslot .prog {
   position: absolute; left: 0; bottom: 0;
   height: 3px; background: var(--blue);
@@ -1001,7 +1001,7 @@ img.thumb, img.bthumb, img.pthumb, img.chip-thumb, img.qthumb, img.act-thumb, im
   -webkit-overflow-scrolling: touch;
 }
 .tt-col {
-  flex: 1 0 240px; min-width: 240px; max-width: 420px;
+  flex: 1 0 208px; min-width: 208px; max-width: 360px;
   display: flex; flex-direction: column;
   background: rgba(0, 0, 0, 0.25);
   border: 1px solid var(--border);

@@ -55,6 +55,8 @@ export const assets: {
 /** Grip bones on the shared rig — tools and carried loads hang off these. */
 export const RIGHT_HAND = 'RightHand';
 export const LEFT_HAND = 'LeftHand';
+/** Upper back, where a shouldered pack is strapped on. */
+export const SPINE = 'Spine01';
 
 /** Names of the clips we drive from gameplay state. */
 export const VILLAGER_CLIPS = {

@@ -119,11 +119,6 @@ export class Sound {
   trained() { if (!this.throttled('trained', 300)) { this.tone(523, 0.08, { type: 'triangle', gain: 0.07 }); this.tone(659, 0.1, { type: 'triangle', gain: 0.07, delay: 0.07 }); } }
   built() { this.tone(392, 0.1, { type: 'triangle', gain: 0.09 }); this.tone(523, 0.12, { type: 'triangle', gain: 0.09, delay: 0.08 }); this.tone(659, 0.16, { type: 'triangle', gain: 0.09, delay: 0.16 }); }
   research() { for (let i = 0; i < 4; i++) this.tone(523 * Math.pow(1.25, i), 0.12, { type: 'sine', gain: 0.06, delay: i * 0.09 }); }
-  warn() {
-    if (this.throttled('warn', 4000)) return;
-    this.tone(220, 0.5, { type: 'sawtooth', gain: 0.12, slide: 260 });
-    this.tone(220, 0.5, { type: 'sawtooth', gain: 0.1, slide: 260, delay: 0.55 });
-  }
   victory() {
     const notes = [392, 523, 659, 784, 1046];
     notes.forEach((n, i) => this.tone(n, 0.5, { type: 'triangle', gain: 0.12, delay: i * 0.16 }));
@@ -152,10 +147,9 @@ export class Sound {
         case 'trained': if (e.owner === 0) this.trained(); break;
         case 'research': if (e.owner === 0) this.research(); break;
         case 'deposit': if (e.owner === 0) this.deposit(); break;
-        case 'underattack': this.warn(); break;
         case 'place': if (e.owner === 0) this.place(); break;
         case 'trade': if (e.owner === 0) this.deposit(); break;
-        case 'wonderStart': if (e.owner === 0) this.research(); else this.warn(); break;
+        case 'wonderStart': if (e.owner === 0) this.research(); break;
       }
     }
   }

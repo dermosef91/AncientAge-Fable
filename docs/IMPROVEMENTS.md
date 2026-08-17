@@ -11,6 +11,11 @@ value references), **Proposal** (the design, with numbers), **Implementation**
 > tree screen) and part of #29 (building collapse, dust and decals). Those
 > entries are kept as written, with a note on what actually landed and how it
 > differs from the proposal.
+>
+> **Note on naming:** the proposals below were written against the old
+> four-age progression. Ages have since become six **settlement levels**
+> (Camp → Hamlet → Village → Town → City → Metropolis); read "Bronze Age" as
+> "Town" and "Iron Age" as "Metropolis" where the text predates the change.
 
 ---
 
@@ -104,7 +109,7 @@ same lines or hard mode becomes trivial.
 
 ### 3. Siege units and a Siege Workshop — ✅ **shipped**
 
-> **What landed.** A Bronze Age `siegeworks` building training a **Battering
+> **What landed.** A `siegeworks` building (Town level) training a **Battering
 > Ram** (220 HP, 4 pierce armor, +46 vs buildings, speed 1.85) and a **Catapult**
 > (90 HP, range 11, +18 vs buildings, 1.6-radius splash). Both are classed
 > `siege`, and every other unit type got a bonus against them, so siege is
@@ -867,8 +872,8 @@ already generating all of this information and throwing it away.
 
 ### 25. Tutorial and informative tooltips — 🟡 **tech tree shipped**
 
-> **What landed.** The tech tree screen, opened by tapping the age chip: all four
-> ages side by side, each listing the buildings, units and technologies it
+> **What landed.** The tech tree screen, opened by tapping the settlement chip: all six
+> levels side by side, each listing the buildings, units and technologies it
 > unlocks with costs, model-derived thumbnails and a Reached / You are here /
 > Locked state. Everything is derived from the balance tables rather than
 > hand-listed, so a new building appears the moment it is added to `config.ts` —
