@@ -9,6 +9,7 @@ import type {
 } from '../core/types';
 import { RES_OF_NODE } from '../core/types';
 import { angleLerp, clamp, dist, dist2 } from '../core/utils';
+import { civicLevelUp, planCivic } from './civic';
 import { onWildsBuildingHit, onWildsBuildingRazed, onWildsUnitKilled, wildsReact } from './encounters';
 import { landPassableFor, waterPassable } from './pathfinding';
 import type { World } from './world';
@@ -136,6 +137,7 @@ function updateBuildings(world: World, dt: number) {
           applyResearch(world, b.owner, q.tech);
         } else if (q.kind === 'level' && q.level !== undefined) {
           p.level = Math.max(p.level, q.level);
+          civicLevelUp(world, b.owner);
           world.emit({ t: 'levelup', owner: b.owner, level: p.level });
           if (b.owner === 0) {
             world.emit({ t: 'toast', owner: 0, msg: `Your settlement grows into a ${SETTLEMENTS[p.level].name}`, kind: 'good' });
@@ -634,6 +636,8 @@ function updateBuild(world: World, u: Unit, dt: number, speed: number) {
           world.emit({ t: 'ping', x: world.tradePost.x, z: world.tradePost.z, color: '#f0c05a' });
         }
         world.emit({ t: 'built', id: b.id, owner: b.owner, bType: b.type, x: b.x, z: b.z });
+        // Streets to the neighbours, and ornaments if the work is grand enough.
+        planCivic(world, b);
         // farms: builder becomes the farmer
         if (def.farm && !b.workerId) {
           b.workerId = u.id;

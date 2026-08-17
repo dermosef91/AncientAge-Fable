@@ -1939,6 +1939,11 @@ export function propGeo(kind: string, faction?: Faction): THREE.BufferGeometry {
             { seg: 3, rx: Math.sin(a) * 0.2, rz: Math.cos(a) * 0.2 });
         }
         break;
+      // Civic ornaments: the statues, gardens and squares a settlement raises
+      // around its larger works. Pure scenery, so they live in the prop cache.
+      case 'civic_statue': statueB(p, st, faction ?? 'greece'); break;
+      case 'civic_garden': gardenB(p, st, faction ?? 'greece'); break;
+      case 'civic_plaza': plazaB(p, st, faction ?? 'greece'); break;
       // Faction paving: flat slabs that form plazas and roads around a base.
       // Two variants per faction so a plaza doesn't look rubber-stamped.
       case 'paving':
