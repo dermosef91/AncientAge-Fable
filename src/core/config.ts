@@ -1,6 +1,6 @@
 // All game balance data: ages, units, buildings, factions, techs.
 import type {
-  BuildingTypeId, Difficulty, Faction, NodeKind, ResType, UnitTypeId
+  ArmorClass, BuildingTypeId, DamageType, Difficulty, Faction, NodeKind, ResType, UnitTypeId
 } from './types';
 
 export const MAP_W = 264;   // ~10x the area of the original 84x84 battlefield
@@ -38,6 +38,9 @@ export const AGES: AgeDef[] = [
 
 export const MAX_AGE = AGES.length - 1;
 
+/** Flat damage added when an attack lands on a target of this class. */
+export type BonusTable = Partial<Record<ArmorClass, number>>;
+
 export interface UnitDef {
   name: string;
   short: string;
@@ -45,13 +48,24 @@ export interface UnitDef {
   hp: number;
   atk: number;
   range: number;      // 0 => melee
-  armor: number;
+  /** Soaks melee and siege damage. */
+  meleeArmor: number;
+  /** Soaks arrows and spears. */
+  pierceArmor: number;
+  /** What this unit counts as when someone else's bonus table is applied. */
+  armorClass: ArmorClass;
+  /** Which armor channel this unit's own attacks are resolved against. */
+  dmgType: DamageType;
+  /** Flat bonus damage against particular target classes. */
+  bonus?: BonusTable;
+  /** Area damage on impact. `friendly` scales the share own units take. */
+  splash?: { radius: number; friendly: number };
   speed: number;
   trainTime: number;
   aggro: number;
   pop: number;
   radius: number;
-  projectile?: 'arrow' | 'spear';
+  projectile?: 'arrow' | 'spear' | 'boulder';
   cooldown: number;
   water?: boolean;
   age: number;
@@ -61,73 +75,117 @@ export interface UnitDef {
 export const UNITS: Record<UnitTypeId, UnitDef> = {
   villager: {
     name: 'Villager', short: 'Villager', cost: { food: 50 }, hp: 32, atk: 3, range: 0,
-    armor: 0, speed: 2.7, trainTime: 11, aggro: 3.5, pop: 1, radius: 0.26, cooldown: 1.4, age: 0,
+    meleeArmor: 0, pierceArmor: 0, armorClass: 'worker', dmgType: 'melee',
+    speed: 2.7, trainTime: 11, aggro: 3.5, pop: 1, radius: 0.26, cooldown: 1.4, age: 0,
     desc: 'Gathers resources, builds and repairs.'
   },
   spearman: {
     name: 'Spearman', short: 'Spearman', cost: { food: 55, wood: 20 }, hp: 55, atk: 7, range: 0,
-    armor: 0, speed: 2.95, trainTime: 14, aggro: 7, pop: 1, radius: 0.28, cooldown: 1.1, age: 1,
-    desc: 'Cheap frontline melee fighter.'
+    meleeArmor: 0, pierceArmor: 0, armorClass: 'infantry', dmgType: 'melee',
+    bonus: { cavalry: 8, siege: 4 },
+    speed: 2.95, trainTime: 14, aggro: 7, pop: 1, radius: 0.28, cooldown: 1.1, age: 1,
+    desc: 'Cheap frontline melee fighter. Braced spears gut chariots and siege engines.'
   },
   archer: {
     name: 'Archer', short: 'Archer', cost: { wood: 35, gold: 25 }, hp: 34, atk: 5, range: 5.5,
-    armor: 0, speed: 2.95, trainTime: 15, aggro: 7.5, pop: 1, radius: 0.26,
+    meleeArmor: 0, pierceArmor: 0, armorClass: 'ranged', dmgType: 'pierce',
+    bonus: { infantry: 2, siege: 3 },
+    speed: 2.95, trainTime: 15, aggro: 7.5, pop: 1, radius: 0.26,
     projectile: 'arrow', cooldown: 1.6, age: 1,
-    desc: 'Ranged support. Fragile but deadly in numbers.'
+    desc: 'Ranged support. Deadly to infantry in numbers; arrows waste on stone.'
   },
   chariot: {
     name: 'War Chariot', short: 'Chariot', cost: { food: 45, wood: 55, gold: 25 }, hp: 72, atk: 7,
-    range: 5, armor: 0, speed: 4.4, trainTime: 18, aggro: 8, pop: 2, radius: 0.42,
+    range: 5, meleeArmor: 0, pierceArmor: 0, armorClass: 'cavalry', dmgType: 'pierce',
+    bonus: { ranged: 5, siege: 4 },
+    speed: 4.4, trainTime: 18, aggro: 8, pop: 2, radius: 0.42,
     projectile: 'arrow', cooldown: 1.7, age: 2,
-    desc: 'Fast Egyptian chariot archer. Hit and run.'
+    desc: 'Fast Egyptian chariot archer. Rides down archers and siege — but fears the spear.'
   },
   hoplite: {
     name: 'Hoplite', short: 'Hoplite', cost: { food: 60, gold: 40 }, hp: 95, atk: 10, range: 0,
-    armor: 2, speed: 2.55, trainTime: 18, aggro: 7, pop: 1, radius: 0.3, cooldown: 1.2, age: 2,
-    desc: 'Greek heavy infantry. An armored wall of bronze.'
+    meleeArmor: 3, pierceArmor: 0, armorClass: 'infantry', dmgType: 'melee',
+    bonus: { cavalry: 3, siege: 5 },
+    speed: 2.55, trainTime: 18, aggro: 7, pop: 1, radius: 0.3, cooldown: 1.2, age: 2,
+    desc: 'Greek heavy infantry. Bronze turns blades aside — but not arrows.'
   },
   legionary: {
     name: 'Legionary', short: 'Legionary', cost: { food: 50, gold: 30 }, hp: 80, atk: 9, range: 0,
-    armor: 1, speed: 3.0, trainTime: 15, aggro: 7, pop: 1, radius: 0.29, cooldown: 1.1, age: 2,
-    desc: 'Disciplined Roman infantry. Reliable and swift to muster.'
+    meleeArmor: 1, pierceArmor: 1, armorClass: 'infantry', dmgType: 'melee',
+    bonus: { building: 3, siege: 4 },
+    speed: 3.0, trainTime: 15, aggro: 7, pop: 1, radius: 0.29, cooldown: 1.1, age: 2,
+    desc: 'Disciplined Roman infantry. Reliable, swift to muster, and handy with a pick.'
+  },
+  ram: {
+    name: 'Battering Ram', short: 'Ram', cost: { wood: 130, gold: 40 }, hp: 220, atk: 4, range: 0,
+    meleeArmor: 1, pierceArmor: 4, armorClass: 'siege', dmgType: 'siege',
+    bonus: { building: 46 },
+    speed: 1.85, trainTime: 26, aggro: 2.5, pop: 2, radius: 0.5, cooldown: 2.6, age: 2,
+    desc: 'Shrugs off arrows and shatters stone. Helpless against troops — keep it escorted.'
+  },
+  catapult: {
+    name: 'Catapult', short: 'Catapult', cost: { wood: 150, stone: 60, gold: 80 }, hp: 90, atk: 12,
+    range: 11, meleeArmor: 0, pierceArmor: 0, armorClass: 'siege', dmgType: 'siege',
+    bonus: { building: 18 },
+    splash: { radius: 1.6, friendly: 0.5 },
+    speed: 1.7, trainTime: 32, aggro: 9, pop: 3, radius: 0.46,
+    projectile: 'boulder', cooldown: 4.2, age: 2,
+    desc: 'Outranges any tower. The shot scatters, and does not ask whose men stand beneath it.'
   },
   boat: {
     name: 'Fishing Boat', short: 'Boat', cost: { wood: 40 }, hp: 60, atk: 0, range: 0,
-    armor: 1, speed: 3.3, trainTime: 14, aggro: 0, pop: 1, radius: 0.5, cooldown: 1,
+    meleeArmor: 1, pierceArmor: 1, armorClass: 'worker', dmgType: 'melee',
+    speed: 3.3, trainTime: 14, aggro: 0, pop: 1, radius: 0.5, cooldown: 1,
     water: true, age: 0,
     desc: 'Gathers food from fish shoals.'
   },
   tradecart: {
     name: 'Trade Cart', short: 'Cart', cost: { wood: 45, gold: 15 }, hp: 52, atk: 0, range: 0,
-    armor: 0, speed: 3.1, trainTime: 16, aggro: 0, pop: 1, radius: 0.36, cooldown: 1, age: 1,
+    meleeArmor: 0, pierceArmor: 0, armorClass: 'worker', dmgType: 'melee',
+    speed: 3.1, trainTime: 16, aggro: 0, pop: 1, radius: 0.36, cooldown: 1, age: 1,
     desc: 'Hauls goods to the trading post and returns with gold.'
   },
   // ---- the wilds (owner 2, never trained) ----
   gazelle: {
     name: 'Gazelle', short: 'Gazelle', cost: {}, hp: 26, atk: 0, range: 0,
-    armor: 0, speed: 3.45, trainTime: 0, aggro: 0, pop: 0, radius: 0.24, cooldown: 1, age: 0,
+    meleeArmor: 0, pierceArmor: 0, armorClass: 'wild', dmgType: 'melee',
+    speed: 3.45, trainTime: 0, aggro: 0, pop: 0, radius: 0.24, cooldown: 1, age: 0,
     desc: 'Swift game. Hunt it and butcher the carcass for food.'
   },
   boar: {
     name: 'Wild Boar', short: 'Boar', cost: {}, hp: 90, atk: 9, range: 0,
-    armor: 0, speed: 3.15, trainTime: 0, aggro: 0, pop: 0, radius: 0.3, cooldown: 1.3, age: 0,
+    meleeArmor: 0, pierceArmor: 0, armorClass: 'wild', dmgType: 'melee',
+    speed: 3.15, trainTime: 0, aggro: 0, pop: 0, radius: 0.3, cooldown: 1.3, age: 0,
     desc: 'Ill-tempered and dangerous. Rich meat for the brave.'
   },
   wolf: {
     name: 'Wolf', short: 'Wolf', cost: {}, hp: 44, atk: 6, range: 0,
-    armor: 0, speed: 3.85, trainTime: 0, aggro: 6.5, pop: 0, radius: 0.26, cooldown: 1.15, age: 0,
+    meleeArmor: 0, pierceArmor: 0, armorClass: 'wild', dmgType: 'melee',
+    speed: 3.85, trainTime: 0, aggro: 6.5, pop: 0, radius: 0.26, cooldown: 1.15, age: 0,
     desc: 'A pack hunter with a taste for stray villagers.'
   },
   mercenary: {
     name: 'Mercenary', short: 'Merc', cost: {}, hp: 86, atk: 9, range: 0,
-    armor: 1, speed: 3.0, trainTime: 0, aggro: 0, pop: 1, radius: 0.29, cooldown: 1.1, age: 0,
+    meleeArmor: 1, pierceArmor: 0, armorClass: 'infantry', dmgType: 'melee',
+    bonus: { siege: 4 },
+    speed: 3.0, trainTime: 0, aggro: 0, pop: 1, radius: 0.29, cooldown: 1.1, age: 0,
     desc: 'A deserter selling his spear to whoever pays.'
   },
   refugee: {
     name: 'Refugee', short: 'Refugee', cost: {}, hp: 24, atk: 0, range: 0,
-    armor: 0, speed: 2.6, trainTime: 0, aggro: 0, pop: 0, radius: 0.25, cooldown: 1, age: 0,
+    meleeArmor: 0, pierceArmor: 0, armorClass: 'worker', dmgType: 'melee',
+    speed: 2.6, trainTime: 0, aggro: 0, pop: 0, radius: 0.25, cooldown: 1, age: 0,
     desc: 'Displaced folk. Lead them to a Town Center and they will settle.'
   }
+};
+
+/** Units that exist to break buildings: they never chase soft targets. */
+export const SIEGE_UNITS: ReadonlySet<UnitTypeId> = new Set<UnitTypeId>(['ram', 'catapult']);
+
+/** Human-facing names for the counter line in the selection panel. */
+export const ARMOR_CLASS_NAME: Record<ArmorClass, string> = {
+  worker: 'Workers', infantry: 'Infantry', ranged: 'Archers', cavalry: 'Cavalry',
+  siege: 'Siege', wild: 'Beasts', building: 'Buildings'
 };
 
 export interface BuildingDef {
@@ -136,6 +194,11 @@ export interface BuildingDef {
   hp: number;
   size: number;
   buildTime: number;
+  /**
+   * Soaks melee and pierce damage. Siege damage ignores it entirely — that is
+   * the whole reason siege engines exist.
+   */
+  armor?: number;
   pop?: number;
   dropoff?: boolean;
   trains?: UnitTypeId[];
@@ -155,12 +218,12 @@ export interface BuildingDef {
 export const BUILDINGS: Record<BuildingTypeId, BuildingDef> = {
   towncenter: {
     name: 'Town Center', cost: { wood: 220, stone: 180 }, hp: 1800, size: 4, buildTime: 70,
-    pop: 5, dropoff: true, trains: ['villager'], age: 2,
+    armor: 2, pop: 5, dropoff: true, trains: ['villager'], age: 2,
     desc: 'Heart of your settlement. Trains villagers and stores goods.'
   },
   house: {
     name: 'House', cost: { wood: 30 }, hp: 250, size: 2, buildTime: 12,
-    pop: 5, age: 0, desc: 'Supports 5 more population.'
+    armor: 1, pop: 5, age: 0, desc: 'Supports 5 more population.'
   },
   farm: {
     name: 'Farm', cost: { wood: 45 }, hp: 120, size: 3, buildTime: 10,
@@ -168,57 +231,62 @@ export const BUILDINGS: Record<BuildingTypeId, BuildingDef> = {
   },
   storehouse: {
     name: 'Storehouse', cost: { wood: 35 }, hp: 300, size: 2, buildTime: 12,
-    dropoff: true, age: 0, desc: 'Drop-off point for all resources.'
+    armor: 1, dropoff: true, age: 0, desc: 'Drop-off point for all resources.'
   },
   barracks: {
     name: 'Barracks', cost: { wood: 90 }, hp: 700, size: 3, buildTime: 25,
-    trains: ['spearman'], age: 1, desc: 'Trains melee infantry.'
+    armor: 1, trains: ['spearman'], age: 1, desc: 'Trains melee infantry.'
   },
   range: {
     name: 'Archery Range', cost: { wood: 90 }, hp: 650, size: 3, buildTime: 25,
-    trains: ['archer'], age: 1, desc: 'Trains ranged units.'
+    armor: 1, trains: ['archer'], age: 1, desc: 'Trains ranged units.'
+  },
+  siegeworks: {
+    name: 'Siege Workshop', cost: { wood: 120, stone: 80 }, hp: 700, size: 3, buildTime: 32,
+    armor: 1, trains: ['ram', 'catapult'], age: 2,
+    desc: 'Engineers build the engines that bring walls down.'
   },
   tower: {
     name: 'Watch Tower', cost: { wood: 50, stone: 80 }, hp: 550, size: 2, buildTime: 22,
-    attack: { dmg: 7, range: 8.5, cooldown: 2.1 }, age: 2,
-    desc: 'Shoots arrows at nearby enemies.'
+    armor: 2, attack: { dmg: 7, range: 8.5, cooldown: 2.1 }, age: 2,
+    desc: 'Shoots arrows at nearby enemies. Stone shrugs off blades — but not boulders.'
   },
   wall: {
-    name: 'Wall', cost: { wood: 4, stone: 8 }, hp: 380, size: 1, buildTime: 5, age: 0,
+    name: 'Wall', cost: { wood: 4, stone: 8 }, hp: 380, size: 1, buildTime: 5, armor: 2, age: 0,
     desc: 'Blocks enemies. Every segment has a gate your own troops pass through.'
   },
   monument: {
     name: 'Monument', cost: { stone: 120, gold: 120 }, hp: 900, size: 3, buildTime: 45,
-    pop: 5, age: 2, desc: 'Wonder of your people. +5 pop, generates gold.'
+    armor: 2, pop: 5, age: 2, desc: 'Wonder of your people. +5 pop, generates gold.'
   },
   dock: {
     name: 'Dock', cost: { wood: 60 }, hp: 350, size: 2, buildTime: 18,
-    dropoff: true, trains: ['boat'], needsShore: true, age: 0,
+    armor: 1, dropoff: true, trains: ['boat'], needsShore: true, age: 0,
     desc: 'Build on the shore. Trains fishing boats.'
   },
   market: {
     name: 'Market', cost: { wood: 100 }, hp: 550, size: 3, buildTime: 26,
-    trains: ['tradecart'], age: 1,
+    armor: 1, trains: ['tradecart'], age: 1,
     desc: 'Exchange resources and send trade carts to the trading post.'
   },
   shrine: {
     name: 'Shrine', cost: { wood: 50, gold: 25 }, hp: 400, size: 2, buildTime: 18,
-    heal: { rate: 0.8, range: 7 }, upgradesTo: 'temple', age: 1,
+    armor: 1, heal: { rate: 0.8, range: 7 }, upgradesTo: 'temple', age: 1,
     desc: 'Priests tend wounds — nearby units slowly heal.'
   },
   temple: {
     name: 'Temple', cost: { stone: 100, gold: 100 }, hp: 800, size: 2, buildTime: 30,
-    heal: { rate: 2.0, range: 10 }, age: 2,
+    armor: 2, heal: { rate: 2.0, range: 10 }, age: 2,
     desc: 'A great sanctuary. Heals nearby units swiftly.'
   },
   amphitheater: {
     name: 'Amphitheater', cost: { wood: 120, stone: 100, gold: 80 }, hp: 900, size: 3, buildTime: 40,
-    age: 2,
+    armor: 2, age: 2,
     desc: 'Games and glory: all your units deal +30% damage while it stands.'
   },
   academy: {
     name: 'Academy', cost: { wood: 110, stone: 60 }, hp: 600, size: 3, buildTime: 30,
-    age: 2,
+    armor: 1, age: 2,
     desc: 'Scholars unlock new technologies for your civilization.'
   },
   statue: {
@@ -235,17 +303,17 @@ export const BUILDINGS: Record<BuildingTypeId, BuildingDef> = {
   },
   lighthouse: {
     name: 'Lighthouse', cost: { stone: 120, wood: 60 }, hp: 700, size: 2, buildTime: 32,
-    needsShore: true, age: 2,
+    armor: 2, needsShore: true, age: 2,
     desc: 'Guides your boats: they gather 30% faster and sail 20% faster.'
   },
   forum: {
     name: 'Forum', cost: { wood: 140, gold: 60 }, hp: 650, size: 3, buildTime: 30,
-    age: 2,
+    armor: 1, age: 2,
     desc: 'Civic administration. Unlocks the labor pool: idle villagers are put to work automatically.'
   },
   wonder: {
     name: 'Wonder', cost: { wood: 300, stone: 350, gold: 300 }, hp: 3000, size: 4, buildTime: 150,
-    age: 3,
+    armor: 2, age: 3,
     desc: 'The crowning work of your people. Complete it and hold it to win.'
   },
   // ---- encounter props (owner 2, placed at map gen, never in the build menu) ----
@@ -270,11 +338,12 @@ export const BUILDINGS: Record<BuildingTypeId, BuildingDef> = {
 /** Order shown in the build menu; town center gets its own wide row. */
 export const BUILD_MENU: BuildingTypeId[] = [
   'house', 'farm', 'storehouse',
-  'barracks', 'range', 'dock',
-  'market', 'shrine', 'academy',
-  'tower', 'wall', 'lighthouse',
-  'statue', 'garden', 'plaza',
-  'amphitheater', 'forum', 'monument'
+  'barracks', 'range', 'siegeworks',
+  'dock', 'market', 'shrine',
+  'academy', 'tower', 'wall',
+  'lighthouse', 'statue', 'garden',
+  'plaza', 'amphitheater', 'forum',
+  'monument'
 ];
 export const BUILD_MENU_WIDE: BuildingTypeId[] = ['towncenter', 'wonder'];
 

@@ -207,6 +207,7 @@ export function buildingGeo(type: BuildingTypeId, faction: Faction, tier = 0): T
       case 'storehouse': storehouse(p, s, faction); break;
       case 'barracks': barracks(p, s, faction); break;
       case 'range': archeryRange(p, s, faction); break;
+      case 'siegeworks': siegeWorks(p, s, faction); break;
       case 'tower': tower(p, s, faction); break;
       case 'wall': wallSeg(p, s, faction, tier); break;
       case 'monument': monument(p, s, faction); break;
@@ -271,7 +272,7 @@ function dress(p: Parts, s: Style, tier: number, size: number) {
 
 export const BUILDING_VIS_HEIGHT: Record<BuildingTypeId, number> = {
   towncenter: 3.0, house: 1.5, farm: 0.7, storehouse: 1.5, barracks: 1.8,
-  range: 1.7, tower: 2.9, wall: 1.4, monument: 3.2, dock: 1.5,
+  range: 1.7, siegeworks: 1.9, tower: 2.9, wall: 1.4, monument: 3.2, dock: 1.5,
   market: 1.6, shrine: 1.5, temple: 2.2, amphitheater: 1.6, academy: 1.9,
   statue: 1.9, garden: 0.7, plaza: 0.2, lighthouse: 3.4, forum: 1.9, wonder: 3.6,
   den: 1.2, camp: 1.7, cairn: 0.8, pedestal: 1.3
@@ -613,6 +614,74 @@ function archeryRange(p: Parts, s: Style, f: Faction) {
     p.cyl(PAL.woodDark, 0.03, 0.03, 0.4, 1.25, 0.2, -1.0 + i * 0.8, { seg: 4 });
   }
   p.box(PAL.wood, 0.05, 0.05, 1.9, 1.25, 0.36, -0.2);
+}
+
+/**
+ * Siege Workshop: an open-sided timber shed over a working yard — a half-built
+ * engine on the stocks, a stack of seasoned beams, a wheelwright's spare wheel
+ * and a smith's anvil. Deliberately unfinished-looking; this is a yard, not a hall.
+ */
+function siegeWorks(p: Parts, s: Style, f: Faction) {
+  p.box(PAL.dirt, 2.8, 0.16, 2.8, 0, 0.08, 0, { shade: 0.96 });
+  // trodden earth around the stocks
+  p.box(PAL.soil, 1.9, 0.03, 1.5, 0.1, 0.17, 0.35, { shade: 1.05 });
+
+  // open shed: four posts, cross-braces, a shallow roof over the back half
+  for (const [px, pz] of [[-1.15, -1.15], [1.15, -1.15], [-1.15, 0.25], [1.15, 0.25]]) {
+    p.box(PAL.woodDark, 0.17, 1.25, 0.17, px, 0.78, pz);
+  }
+  p.box(PAL.wood, 2.6, 0.13, 0.15, 0, 1.42, -1.15);
+  p.box(PAL.wood, 2.6, 0.13, 0.15, 0, 1.42, 0.25);
+  p.box(PAL.wood, 0.13, 0.11, 1.55, -1.15, 1.42, -0.45);
+  p.box(PAL.wood, 0.13, 0.11, 1.55, 1.15, 1.42, -0.45);
+  if (f === 'egypt') {
+    // flat reed roof weighted with mud brick
+    p.box(0xb99a68, 2.75, 0.12, 1.75, 0, 1.55, -0.45);
+    p.box(s.wallDark, 2.5, 0.07, 1.5, 0, 1.63, -0.45, { shade: 0.95 });
+  } else {
+    gabledRoof(p, { roof: s.roof }, 2.8, 0.5, 1.8, 0, 1.49, -0.45);
+  }
+  // back wall of the shed, planked
+  for (let i = 0; i < 5; i++) {
+    p.box(i % 2 ? PAL.wood : PAL.woodLight, 0.52, 1.1, 0.09, -1.04 + i * 0.52, 0.68, -1.22);
+  }
+
+  // the engine on the stocks: a frame taking shape, arm not yet mounted
+  p.box(PAL.woodDark, 0.13, 0.13, 1.2, -0.34, 0.45, 0.35);
+  p.box(PAL.woodDark, 0.13, 0.13, 1.2, 0.54, 0.45, 0.35);
+  p.box(PAL.wood, 1.05, 0.11, 0.13, 0.1, 0.52, -0.15);
+  p.box(PAL.wood, 0.11, 0.62, 0.11, -0.34, 0.82, 0.1, { rx: -0.22 });
+  p.box(PAL.wood, 0.11, 0.62, 0.11, 0.54, 0.82, 0.1, { rx: -0.22 });
+  // trestles holding it off the ground
+  for (const tz of [-0.05, 0.75]) {
+    p.box(PAL.woodDark, 1.15, 0.09, 0.1, 0.1, 0.36, tz);
+    p.box(PAL.woodDark, 0.09, 0.36, 0.09, -0.3, 0.18, tz, { rz: 0.16 });
+    p.box(PAL.woodDark, 0.09, 0.36, 0.09, 0.5, 0.18, tz, { rz: -0.16 });
+  }
+
+  // seasoned timber stacked against the posts
+  for (let i = 0; i < 3; i++) {
+    p.cyl(PAL.woodLight, 0.09, 0.09, 1.5, -0.98 + i * 0.02, 0.24 + i * 0.17, -0.5,
+      { seg: 6, rx: Math.PI / 2, shade: 1 - i * 0.04 });
+  }
+  for (let i = 0; i < 2; i++) {
+    p.cyl(PAL.wood, 0.09, 0.09, 1.5, -0.79, 0.32 + i * 0.17, -0.5, { seg: 6, rx: Math.PI / 2 });
+  }
+  // a spare wheel leaning on the frame
+  p.cyl(PAL.woodDark, 0.34, 0.34, 0.09, 1.02, 0.42, 0.72, { seg: 10, rz: Math.PI / 2, rx: 0.25 });
+  p.cyl(PAL.wood, 0.24, 0.24, 0.1, 1.02, 0.42, 0.72, { seg: 9, rz: Math.PI / 2, rx: 0.25 });
+  p.cyl(0x6a625a, 0.07, 0.07, 0.12, 1.02, 0.42, 0.72, { seg: 6, rz: Math.PI / 2, rx: 0.25 });
+  // smith's anvil and a barrel of pitch
+  p.box(PAL.woodDark, 0.22, 0.24, 0.22, -1.0, 0.28, 0.95);
+  p.box(0x6a625a, 0.36, 0.13, 0.18, -1.0, 0.46, 0.95);
+  p.cone(0x6a625a, 0.09, 0.16, -1.2, 0.46, 0.95, { seg: 5, rz: Math.PI / 2 });
+  p.cyl(0x4a3a2a, 0.17, 0.19, 0.42, -0.55, 0.21, 1.12, { seg: 8 });
+  p.cyl(0x2e2a24, 0.16, 0.16, 0.05, -0.55, 0.43, 1.12, { seg: 8 });
+  // a finished ram head waiting to be fitted
+  p.cyl(PAL.woodDark, 0.11, 0.11, 0.5, 0.95, 0.16, -0.8, { seg: 7, rx: Math.PI / 2 });
+  p.cone(0x8a8378, 0.14, 0.22, 0.95, 0.16, -1.08, { seg: 6, rx: Math.PI / 2 });
+  // banner so the yard still reads as yours from above
+  flagpole(p, -1.15, 1.35, 0.25, 0.9, s.accent);
 }
 
 function tower(p: Parts, s: Style, f: Faction) {
@@ -1401,6 +1470,90 @@ export function unitGeo(type: UnitTypeId, faction: Faction): THREE.BufferGeometr
         humanoid(p, { skin, tunic: 0xf2ead8, tunicTrim: st.accent, scale: 0.92 });
         break;
       }
+      case 'ram': {
+        // Four heavy wheels under a timber cradle. The hide canopy is the
+        // model's whole argument for why arrows barely scratch it.
+        for (const sx of [-1, 1]) {
+          for (const wz of [-0.34, 0.4]) {
+            p.cyl(PAL.woodDark, 0.19, 0.19, 0.09, sx * 0.35, 0.19, wz, { seg: 9, rz: Math.PI / 2 });
+            p.cyl(0x6a625a, 0.055, 0.055, 0.11, sx * 0.35, 0.19, wz, { seg: 6, rz: Math.PI / 2 });
+          }
+        }
+        // chassis, with the crew's painted shields hung along the sides so you
+        // can tell whose ram is at your wall
+        p.box(PAL.wood, 0.62, 0.11, 1.15, 0, 0.33, 0.02);
+        p.box(PAL.woodDark, 0.7, 0.06, 1.2, 0, 0.4, 0.02, { shade: 0.92 });
+        for (const sx of [-1, 1]) {
+          p.box(st.accent, 0.05, 0.3, 0.92, sx * 0.35, 0.55, 0.02);
+          p.box(PAL.gold, 0.06, 0.05, 0.94, sx * 0.355, 0.68, 0.02);
+        }
+        // A-frame uprights carrying the ram
+        for (const sx of [-1, 1]) {
+          p.box(PAL.woodDark, 0.09, 0.86, 0.09, sx * 0.26, 0.82, -0.32, { rz: sx * 0.14 });
+          p.box(PAL.woodDark, 0.09, 0.86, 0.09, sx * 0.26, 0.82, 0.36, { rz: sx * 0.14 });
+        }
+        p.box(PAL.wood, 0.62, 0.09, 0.09, 0, 1.25, -0.32);
+        p.box(PAL.wood, 0.62, 0.09, 0.09, 0, 1.25, 0.36);
+        p.box(PAL.wood, 0.09, 0.08, 0.78, 0, 1.27, 0.02);
+        // hide canopy over the crew, riding high enough to leave the ram visible
+        p.prism(0x8a6f4c, 0.82, 0.32, 1.24, 0, 1.29, 0.02, { shade: 1.04 });
+        p.box(st.accent, 0.86, 0.05, 0.1, 0, 1.3, -0.58);
+        p.box(st.accent, 0.86, 0.05, 0.1, 0, 1.3, 0.6);
+        // the ram itself, slung on ropes, iron-capped and pointing forward
+        p.cyl(0x5a4632, 0.02, 0.02, 0.56, -0.2, 0.96, -0.2, { seg: 4 });
+        p.cyl(0x5a4632, 0.02, 0.02, 0.56, 0.2, 0.96, 0.28, { seg: 4 });
+        p.cyl(PAL.woodDark, 0.13, 0.13, 1.35, 0, 0.68, 0.06, { seg: 8, rx: Math.PI / 2 });
+        p.cyl(0x6a625a, 0.15, 0.15, 0.14, 0, 0.68, 0.62, { seg: 8, rx: Math.PI / 2 });
+        p.cone(0x8a8378, 0.16, 0.28, 0, 0.68, 0.82, { seg: 7, rx: Math.PI / 2 });
+        // iron banding
+        for (const bz of [-0.28, 0.18]) {
+          p.cyl(0x4a443c, 0.14, 0.14, 0.07, 0, 0.68, bz, { seg: 8, rx: Math.PI / 2 });
+        }
+        break;
+      }
+      case 'catapult': {
+        // Light frame, big arm, no cover — every bit as fragile as it plays.
+        for (const sx of [-1, 1]) {
+          p.cyl(PAL.woodDark, 0.17, 0.17, 0.07, sx * 0.32, 0.17, -0.18, { seg: 9, rz: Math.PI / 2 });
+          p.cyl(0x6a625a, 0.05, 0.05, 0.09, sx * 0.32, 0.17, -0.18, { seg: 6, rz: Math.PI / 2 });
+        }
+        // skids at the front take the recoil
+        p.box(PAL.woodDark, 0.1, 0.13, 0.9, -0.28, 0.14, 0.24, { rx: 0.12 });
+        p.box(PAL.woodDark, 0.1, 0.13, 0.9, 0.28, 0.14, 0.24, { rx: 0.12 });
+        // deck, with the crew's colors painted along the side rails
+        p.box(PAL.wood, 0.56, 0.1, 1.1, 0, 0.3, 0.02);
+        p.box(PAL.woodLight, 0.6, 0.05, 1.14, 0, 0.36, 0.02, { shade: 0.95 });
+        for (const sx of [-1, 1]) {
+          p.box(st.accent, 0.05, 0.13, 1.0, sx * 0.3, 0.32, 0.02);
+        }
+        // torsion bundle across the axle
+        p.cyl(0xb8a179, 0.12, 0.12, 0.5, 0, 0.44, -0.24, { seg: 8, rz: Math.PI / 2 });
+        p.cyl(0x6a625a, 0.13, 0.13, 0.08, -0.24, 0.44, -0.24, { seg: 8, rz: Math.PI / 2 });
+        p.cyl(0x6a625a, 0.13, 0.13, 0.08, 0.24, 0.44, -0.24, { seg: 8, rz: Math.PI / 2 });
+        // A-frame the arm slams into
+        for (const sx of [-1, 1]) {
+          p.box(PAL.woodDark, 0.08, 0.78, 0.08, sx * 0.24, 0.72, 0.3, { rz: sx * 0.2, rx: -0.16 });
+        }
+        p.box(PAL.wood, 0.56, 0.09, 0.12, 0, 1.06, 0.18);
+        p.box(0x6f5738, 0.5, 0.09, 0.14, 0, 1.02, 0.16); // padded crossbar
+        // a pennant on the frame — the only thing visible over a wall
+        p.cyl(PAL.woodDark, 0.02, 0.025, 0.66, 0.3, 1.3, 0.36, { seg: 4 });
+        p.box(st.accent, 0.03, 0.24, 0.3, 0.3, 1.5, 0.51);
+        p.box(PAL.gold, 0.035, 0.05, 0.31, 0.3, 1.62, 0.51);
+        // throwing arm, cocked back
+        p.box(PAL.woodDark, 0.09, 0.09, 1.0, 0, 0.74, -0.42, { rx: 0.62 });
+        // sling bucket at the tip
+        p.cyl(PAL.woodDark, 0.17, 0.13, 0.16, 0, 1.16, -0.74, { seg: 8 });
+        p.sphere(PAL.rock, 0.11, 0, 1.24, -0.74, { seg: 6 });
+        // winch and rope
+        p.cyl(PAL.woodDark, 0.07, 0.07, 0.36, 0, 0.44, 0.42, { seg: 7, rz: Math.PI / 2 });
+        p.cyl(0x8a7a5c, 0.02, 0.02, 0.78, 0, 0.72, 0.06, { seg: 4, rx: 0.9 });
+        p.box(PAL.woodDark, 0.05, 0.22, 0.05, 0.22, 0.5, 0.42, { rz: 0.5 });
+        // spare shot in a rack
+        p.sphere(PAL.rock, 0.09, -0.17, 0.44, 0.26, { seg: 5 });
+        p.sphere(PAL.rock, 0.09, 0.17, 0.44, 0.26, { seg: 5, shade: 0.94 });
+        break;
+      }
       case 'tradecart': {
         // solid wheels
         for (const sx of [-1, 1]) {
@@ -1456,6 +1609,7 @@ export function unitGeo(type: UnitTypeId, faction: Faction): THREE.BufferGeometr
 
 export const UNIT_VIS_HEIGHT: Record<UnitTypeId, number> = {
   villager: 0.95, spearman: 1.0, archer: 1.0, chariot: 1.25, hoplite: 1.05, legionary: 1.0,
+  ram: 1.4, catapult: 1.35,
   boat: 1.5, tradecart: 0.95,
   gazelle: 0.8, boar: 0.75, wolf: 0.7, mercenary: 1.0, refugee: 0.95
 };

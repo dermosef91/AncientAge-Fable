@@ -1,10 +1,12 @@
 // HUD: resource bar, age chip, objectives, selection panel with unit stats,
 // context actions, the build menu, toasts and the pause menu.
 import {
-  AGES, BOONS, BUILD_MENU, BUILD_MENU_WIDE, BUILDINGS, ENC, MARKET_BUY_GOLD, MARKET_LOT,
-  MARKET_SELL_GOLD, MAX_AGE, RES_ORDER, TECHS, trainableAt, UNITS, WILDS, type Cost
+  AGES, ARMOR_CLASS_NAME, BOONS, BUILD_MENU, BUILD_MENU_WIDE, BUILDINGS, ENC, MARKET_BUY_GOLD,
+  MARKET_LOT, MARKET_SELL_GOLD, MAX_AGE, RES_ORDER, TECHS, trainableAt, UNITS, WILDS, type Cost
 } from '../core/config';
-import type { Building, BuildingTypeId, ResType, SimEvent, UnitTypeId } from '../core/types';
+import type {
+  ArmorClass, Building, BuildingTypeId, ResType, SimEvent, UnitTypeId
+} from '../core/types';
 import { RES_OF_NODE } from '../core/types';
 import { fmtNum, fmtTime } from '../core/utils';
 import { buildingThumb, thumbImg, unitThumb } from '../render/thumbnails';
@@ -28,6 +30,22 @@ export interface HudCallbacks {
   onRestart: () => void;
   onQuit: () => void;
   setPaused: (p: boolean) => void;
+}
+
+/**
+ * "Strong vs" line for the selection panel — the whole counter system is
+ * invisible unless the unit tells you what it is for.
+ */
+function counterHtml(type: UnitTypeId): string {
+  const bonus = UNITS[type].bonus;
+  if (!bonus) return '';
+  const names = (Object.keys(bonus) as ArmorClass[])
+    .filter(k => (bonus[k] ?? 0) > 0)
+    .sort((a, b) => (bonus[b] ?? 0) - (bonus[a] ?? 0))
+    .map(k => ARMOR_CLASS_NAME[k]);
+  if (names.length === 0) return '';
+  return `<div class="counters" title="Deals bonus damage to these targets">
+    <span class="ck">Strong vs</span> ${names.join(' · ')}</div>`;
 }
 
 /** Cost line: small resource icons followed by their amounts. */
@@ -354,11 +372,12 @@ export class HUD {
             <span class="status">${status}</span></div>
           <div class="statrow">
             <span title="Attack">ATK <b>${s.atk.toFixed(0)}</b></span>
-            <span title="Armor">ARM <b>${s.armor}</b></span>
+            <span title="Melee armor / pierce armor">ARM <b>${s.meleeArmor}/${s.pierceArmor}</b></span>
             <span title="Range">RNG <b>${def.range > 0 ? def.range.toFixed(1) : '1'}</b></span>
             <span title="Speed">SPD <b>${s.speed.toFixed(1)}</b></span>
             ${carryTxt}
           </div>
+          ${counterHtml(u.type)}
           <div class="hpbar"><div data-hp style="width:${(u.hp / u.maxHp) * 100}%"></div>
             <span class="hptext" data-hptext>${Math.ceil(u.hp)}/${u.maxHp}</span></div>
         </div>`;

@@ -42,11 +42,45 @@ Open on a phone (landscape) or desktop browser.
 | --- | --- | --- |
 | Stone | — | House, Farm, Storehouse, Wall, Dock, Garden, Plaza, Villagers |
 | Tool | 150 food | Barracks, Archery Range, Market, Shrine, Statue, Spearman, Archer, Trade Cart, The Wheel |
-| Bronze | 260 food, 70 gold | Elite unit, Watch Tower, Temple, Academy, Amphitheater, Forum, Lighthouse, Monument, extra Town Centers, Masonry, Bronze Arms |
+| Bronze | 260 food, 70 gold | Elite unit, **Siege Workshop**, Watch Tower, Temple, Academy, Amphitheater, Forum, Lighthouse, Monument, extra Town Centers, Masonry, Bronze Arms |
 | Iron | 460 food, 200 gold | **The Wonder**, Hardened Shields, Coinage, Logistics |
 
 Every epoch also rebuilds your skyline: standing buildings gain trim, planters,
 banners, gold and braziers as the ages pass.
+
+### Counters, armor and siege
+
+Army composition decides fights. Every attack carries a **damage type** and every
+target has a **class**, and the two are matched against a table of bonuses:
+
+| Unit | Strong against |
+| --- | --- |
+| Spearman | Cavalry (+8), Siege (+4) — a braced spear guts a chariot in five thrusts |
+| Archer | Infantry (+2), Siege (+3) |
+| War Chariot | Archers (+5), Siege (+4) |
+| Hoplite | Siege (+5), Cavalry (+3) |
+| Legionary | Siege (+4), Buildings (+3) |
+| Battering Ram | Buildings (+46) — and almost nothing else |
+| Catapult | Buildings (+18), plus splash on everything nearby |
+
+Armor comes in two channels. **Melee armor** soaks blades; **pierce armor** soaks
+arrows. A Hoplite's bronze (3 melee, 0 pierce) turns a spearman's thrust into a
+scratch and does nothing at all about massed archers — so the answer to a phalanx
+is a volley, and the answer to archers is anything with a horse.
+
+Buildings carry armor too, and this is what makes siege necessary: stone shrugs
+off blades and arrows, but **siege damage ignores building armor entirely**.
+
+- **Battering Ram** — slow, 4 pierce armor, shatters walls and town centers.
+  Utterly helpless against troops: keep it escorted, because five spearmen will
+  chop one down in about twenty seconds.
+- **Catapult** — range 11, which outreaches a Watch Tower's 8.5. It will stand
+  off and break the tower without taking a single arrow. Its shot is lobbed,
+  so it misses runners, and the blast **damages your own units too** (at half
+  rate) — do not park your infantry on the target.
+
+The short version: siege beats buildings, everything beats siege, and the tower
+you could once ignore now needs an answer.
 
 ### The city
 
@@ -57,6 +91,8 @@ banners, gold and braziers as the ages pass.
   enemies still have to break them down.
 - **Shrine → Temple** — heals nearby units; upgrade it in place for a far
   stronger aura. Research **Medicine** to double it.
+- **Siege Workshop** *(Bronze Age)* — engineers build Battering Rams and
+  Catapults. The way through a fortified town.
 - **Amphitheater** — while it stands, all your units deal +30% damage.
 - **Academy** — researches Irrigation, Medicine, Coinage and Logistics.
 - **Forum** — unlocks the labor pool: idle villagers are assigned work

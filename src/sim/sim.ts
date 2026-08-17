@@ -2,9 +2,11 @@
 // combat, projectiles, fog. Deterministic given the same command stream.
 import {
   AGES, BUILDINGS, FARM_FOOD, FARM_RESEED_COST, MAP_W, POP_MAX, RES_ORDER,
-  TECHS, TRADE_BASE_GOLD, TRADE_GOLD_PER_TILE, UNITS, WILDS, WONDER_COUNTDOWN
+  SIEGE_UNITS, TECHS, TRADE_BASE_GOLD, TRADE_GOLD_PER_TILE, UNITS, WILDS, WONDER_COUNTDOWN
 } from '../core/config';
-import type { Building, NodeKind, Projectile, ResType, Unit } from '../core/types';
+import type {
+  ArmorClass, Building, DamageType, NodeKind, Projectile, ResType, Unit, UnitTypeId
+} from '../core/types';
 import { RES_OF_NODE } from '../core/types';
 import { angleLerp, clamp, dist, dist2 } from '../core/utils';
 import { onWildsBuildingHit, onWildsBuildingRazed, onWildsUnitKilled, wildsReact } from './encounters';
@@ -169,7 +171,7 @@ function updateBuildings(world: World, dt: number) {
       const targetId = findTowerTarget(world, b, def.attack.range);
       if (targetId) {
         const t = world.units.get(targetId)!;
-        spawnProjectile(world, b.owner, b.x, b.z, 2.6, t.id, def.attack.dmg, 'arrow');
+        spawnProjectile(world, b.owner, b.x, b.z, 2.6, t.id, def.attack.dmg, 'arrow', null);
         b.cooldown = def.attack.cooldown;
         b.attackAnimT = 0;
         world.emit({ t: 'shoot', x: b.x, z: b.z });
@@ -250,7 +252,10 @@ function updateUnit(world: World, u: Unit, dt: number) {
         if (isMilitary(u)) {
           // Hold-position units only strike what already stands in reach.
           const radius = u.hold ? Math.max(def.range, def.radius + 0.7) + 0.4 : def.aggro;
-          const e = world.findEnemy(u.owner, u.x, u.z, radius, true, true);
+          // Siege engines are for stone: they never pick a fight with troops.
+          const e = isSiege(u)
+            ? world.findEnemyBuilding(u.owner, u.x, u.z, radius)
+            : world.findEnemy(u.owner, u.x, u.z, radius, true, true);
           if (e) {
             u.post = u.post ?? { x: u.x, z: u.z };
             u.resume = u.hold ? null : { x: u.post.x, z: u.post.z, attackMove: false };
@@ -274,7 +279,7 @@ function updateUnit(world: World, u: Unit, dt: number) {
       const t = u.task;
       if (t.attackMove && isMilitary(u) && u.scanT <= 0) {
         u.scanT = 0.45;
-        const e = world.findEnemy(u.owner, u.x, u.z, UNITS[u.type].aggro + 1);
+        const e = siegeAwareEnemy(world, u, UNITS[u.type].aggro + 1);
         if (e) {
           u.task = { type: 'attack', targetId: e };
           u.path = null;
@@ -318,6 +323,17 @@ function updateUnit(world: World, u: Unit, dt: number) {
 function isMilitary(u: Unit): boolean {
   return u.type !== 'villager' && u.type !== 'boat' && u.type !== 'tradecart' &&
     u.type !== 'refugee' && u.type !== 'gazelle';
+}
+
+function isSiege(u: Unit): boolean {
+  return SIEGE_UNITS.has(u.type);
+}
+
+/** Auto-acquire a target: siege engines only ever look for something to knock down. */
+function siegeAwareEnemy(world: World, u: Unit, r: number): number {
+  return isSiege(u)
+    ? world.findEnemyBuilding(u.owner, u.x, u.z, r)
+    : world.findEnemy(u.owner, u.x, u.z, r);
 }
 
 // ---------- trade ----------
@@ -663,7 +679,7 @@ function updateAttack(world: World, u: Unit, dt: number, stats: { atk: number; s
   const tb = tu ? undefined : world.buildings.get(u.task.targetId);
   if (!tu && !tb) {
     // target gone — look for another, otherwise resume
-    const e = isMilitary(u) ? world.findEnemy(u.owner, u.x, u.z, def.aggro + 1.5) : 0;
+    const e = isMilitary(u) ? siegeAwareEnemy(world, u, def.aggro + 1.5) : 0;
     if (e) { u.task = { type: 'attack', targetId: e }; u.path = null; return; }
     if (u.resume) {
       u.task = { type: 'move', x: u.resume.x, z: u.resume.z, attackMove: u.resume.attackMove };
@@ -705,7 +721,7 @@ function updateAttack(world: World, u: Unit, dt: number, stats: { atk: number; s
       u.idleT += dt;
       if (u.idleT > 2.2) {
         u.idleT = 0;
-        const near = world.findEnemy(u.owner, u.x, u.z, 4.5);
+        const near = siegeAwareEnemy(world, u, 4.5);
         if (near && near !== u.task.targetId) {
           u.task = { type: 'attack', targetId: near };
           u.path = null;
@@ -722,20 +738,50 @@ function updateAttack(world: World, u: Unit, dt: number, stats: { atk: number; s
     u.cooldown = def.cooldown;
     u.attackAnimT = 0;
     if (def.range > 0) {
-      spawnProjectile(world, u.owner, u.x, u.z, 0.85, u.task.targetId, stats.atk, def.projectile ?? 'arrow');
-      world.emit({ t: 'shoot', x: u.x, z: u.z });
+      const kind = def.projectile ?? 'arrow';
+      spawnProjectile(world, u.owner, u.x, u.z, 0.85, u.task.targetId, stats.atk, kind, u.type);
+      world.emit({ t: 'shoot', x: u.x, z: u.z, heavy: kind === 'boulder' });
     } else {
-      dealDamage(world, u.owner, u.task.targetId, stats.atk, u.x, u.z);
+      dealDamage(world, u.owner, u.task.targetId, stats.atk, u.x, u.z, u.type);
     }
   }
 }
 
-export function dealDamage(world: World, byOwner: number, targetId: number, rawDmg: number, fromX: number, fromZ: number) {
+/** Towers loose plain arrows: pierce damage, no counter bonuses. */
+const TOWER_DMG_TYPE: DamageType = 'pierce';
+
+function dmgTypeOf(src: UnitTypeId | null): DamageType {
+  return src ? UNITS[src].dmgType : TOWER_DMG_TYPE;
+}
+
+function bonusVs(src: UnitTypeId | null, cls: ArmorClass): number {
+  return src ? (UNITS[src].bonus?.[cls] ?? 0) : 0;
+}
+
+/**
+ * Resolve one hit against a unit: the attacker's flat counter bonus for that
+ * unit's class, less whichever armor channel the damage type reads. A hit
+ * always lands for at least 1 so nothing is literally immune.
+ */
+function damageToUnit(world: World, src: UnitTypeId | null, rawDmg: number, target: Unit): number {
+  const s = world.unitStats(target.owner, target.type);
+  const armor = dmgTypeOf(src) === 'pierce' ? s.pierceArmor : s.meleeArmor;
+  return Math.max(1, rawDmg + bonusVs(src, UNITS[target.type].armorClass) - armor);
+}
+
+/** Same for buildings — siege damage ignores their armor, everything else does not. */
+function damageToBuilding(world: World, src: UnitTypeId | null, rawDmg: number, target: Building): number {
+  const armor = dmgTypeOf(src) === 'siege' ? 0 : world.buildingArmor(target.owner, target.type);
+  return Math.max(1, rawDmg + bonusVs(src, 'building') - armor);
+}
+
+export function dealDamage(
+  world: World, byOwner: number, targetId: number, rawDmg: number,
+  fromX: number, fromZ: number, srcType: UnitTypeId | null = null
+) {
   const tu = world.units.get(targetId);
   if (tu) {
-    const s = world.unitStats(tu.owner, tu.type);
-    const dmg = Math.max(1, rawDmg - s.armor);
-    tu.hp -= dmg;
+    tu.hp -= damageToUnit(world, srcType, rawDmg, tu);
     tu.lastHitT = world.time;
     world.emit({ t: 'hit', x: tu.x, z: tu.z, y: 0.7, melee: true });
     if (tu.owner === 0) world.emit({ t: 'underattack', owner: 0, x: tu.x, z: tu.z });
@@ -749,7 +795,7 @@ export function dealDamage(world: World, byOwner: number, targetId: number, rawD
   }
   const tb = world.buildings.get(targetId);
   if (tb) {
-    tb.hp -= Math.max(1, rawDmg);
+    tb.hp -= damageToBuilding(world, srcType, rawDmg, tb);
     tb.lastHitT = world.time;
     world.emit({ t: 'hit', x: tb.x, z: tb.z, y: 1.0, melee: true });
     if (tb.owner === 0) world.emit({ t: 'underattack', owner: 0, x: tb.x, z: tb.z });
@@ -759,6 +805,30 @@ export function dealDamage(world: World, byOwner: number, targetId: number, rawD
     } else if (tb.owner === WILDS) {
       onWildsBuildingHit(world, tb, byOwner);
     }
+  }
+}
+
+/**
+ * A catapult's shot scatters. Everything but the unit it actually struck takes
+ * a share, own troops included — at a reduced rate, because a full-price
+ * friendly fire rule is unplayable on a touch screen.
+ */
+function splashDamage(
+  world: World, byOwner: number, srcType: UnitTypeId, x: number, z: number,
+  rawDmg: number, directId: number
+) {
+  const splash = UNITS[srcType].splash;
+  if (!splash) return;
+  const caught: Unit[] = [];
+  world.unitsNear(x, z, splash.radius, caught);
+  // Snapshot ids first: dealing damage can kill units and mutate the world.
+  const ids = caught.filter(u => u.id !== directId).map(u => u.id);
+  for (const id of ids) {
+    const u = world.units.get(id);
+    if (!u) continue;
+    const share = u.owner === byOwner ? splash.friendly : 1;
+    if (share <= 0) continue;
+    dealDamage(world, byOwner, id, rawDmg * share, x, z, srcType);
   }
 }
 
@@ -791,6 +861,9 @@ function reactToDamage(world: World, victim: Unit, byOwner: number, fromX: numbe
     }
     return;
   }
+  // Siege engines never turn on their tormentors — at 1.8 speed they could
+  // never catch one anyway. They keep grinding at whatever they were sent for.
+  if (isSiege(victim)) return;
   // military retaliates if not already fighting
   if (victim.task.type !== 'attack') {
     const attacker = world.findEnemy(victim.owner, fromX, fromZ, 2.5) ||
@@ -803,20 +876,25 @@ function reactToDamage(world: World, victim: Unit, byOwner: number, fromX: numbe
   }
 }
 
-function spawnProjectile(world: World, owner: number, x: number, z: number, y: number, targetId: number, dmg: number, kind: 'arrow' | 'spear') {
+function spawnProjectile(
+  world: World, owner: number, x: number, z: number, y: number, targetId: number,
+  dmg: number, kind: Projectile['kind'], srcType: UnitTypeId | null
+) {
   const tu = world.units.get(targetId);
   const tb = tu ? undefined : world.buildings.get(targetId);
   const tx = tu ? tu.x : tb ? tb.x : x;
   const tz = tu ? tu.z : tb ? tb.z : z;
   const d = dist(x, z, tx, tz);
-  const total = Math.max(0.18, d / 13);
+  // A boulder is heavy: it flies slower and lobs much higher than an arrow.
+  const heavy = kind === 'boulder';
+  const total = Math.max(heavy ? 0.5 : 0.18, d / (heavy ? 9 : 13));
   world.projectiles.push({
     id: world.nextId++, owner,
     x, y, z, px: x, py: y, pz: z,
     sx: x, sz: z, tx, tz, targetId,
     t: 0, total, dmg,
-    arc: clamp(d * 0.14, 0.25, 1.5),
-    kind
+    arc: heavy ? clamp(d * 0.3, 1.2, 3.4) : clamp(d * 0.14, 0.25, 1.5),
+    kind, srcType
   });
 }
 
@@ -825,21 +903,25 @@ function updateProjectiles(world: World, dt: number) {
   for (let i = arr.length - 1; i >= 0; i--) {
     const p = arr[i];
     p.t += dt / p.total;
-    // light homing so shots connect with moving targets
+    // light homing so shots connect with moving targets — but a lobbed boulder
+    // lands where it was aimed, which is what makes catapults miss runners.
     const tu = world.units.get(p.targetId);
-    if (tu) {
+    if (tu && p.kind !== 'boulder') {
       p.tx += (tu.x - p.tx) * Math.min(1, dt * 7);
       p.tz += (tu.z - p.tz) * Math.min(1, dt * 7);
     }
     if (p.t >= 1) {
       // impact
       const tb = world.buildings.get(p.targetId);
-      if (tu && dist(tu.x, tu.z, p.tx, p.tz) < 1.0) {
-        dealDamage(world, p.owner, p.targetId, p.dmg, p.sx, p.sz);
-      } else if (tb) {
-        dealDamage(world, p.owner, p.targetId, p.dmg, p.sx, p.sz);
+      const hitUnit = tu && dist(tu.x, tu.z, p.tx, p.tz) < 1.0;
+      if (hitUnit || tb) {
+        dealDamage(world, p.owner, p.targetId, p.dmg, p.sx, p.sz, p.srcType);
       } else {
         world.emit({ t: 'hit', x: p.tx, z: p.tz, y: 0.05, melee: false });
+      }
+      // Scatter catches everyone standing near where it came down, hit or miss.
+      if (p.srcType && UNITS[p.srcType].splash) {
+        splashDamage(world, p.owner, p.srcType, p.tx, p.tz, p.dmg, hitUnit ? p.targetId : 0);
       }
       arr.splice(i, 1);
       continue;

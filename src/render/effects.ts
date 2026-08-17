@@ -232,6 +232,15 @@ export function arrowGeo(): THREE.BufferGeometry {
   return p.build();
 }
 
+/** A catapult's shot: a rough, faceted stone. Orientation is irrelevant. */
+export function boulderGeo(): THREE.BufferGeometry {
+  const p = new Parts();
+  p.ico(0x8f8a80, 0.24, 0, 0, 0);
+  p.ico(0x7d786f, 0.19, 0.06, 0.05, -0.04, { shade: 0.94 });
+  p.ico(0x9a948a, 0.13, -0.07, -0.05, 0.06, { shade: 1.06 });
+  return p.build();
+}
+
 // ---------------------------------------------------------------- markers
 export class Markers {
   group = new THREE.Group();

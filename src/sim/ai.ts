@@ -1,7 +1,9 @@
 // Enemy AI: runs its economy, expands, defends its base, and launches
 // escalating attack waves. Issues orders through the same command API
 // as the player.
-import { AGES, BUILDINGS, DIFFICULTY, MAX_AGE, trainableAt, UNITS } from '../core/config';
+import {
+  AGES, BUILDINGS, DIFFICULTY, MAX_AGE, SIEGE_UNITS, trainableAt, UNITS
+} from '../core/config';
 import type { Building, Difficulty, NodeKind, ResType, Unit, UnitTypeId } from '../core/types';
 import { RES_OF_NODE } from '../core/types';
 import { dist, dist2 } from '../core/utils';
@@ -261,6 +263,12 @@ export class AIController {
       const dir = Math.atan2(w.tcPos[0].z - tc.z, w.tcPos[0].x - tc.x);
       if (place('tower', tc.x + Math.cos(dir) * 9, tc.z + Math.sin(dir) * 9)) return;
     }
+    // Siege workshop — once the player fortifies, or late enough that the
+    // town centers themselves are the problem.
+    if (p.age >= 2 && has('siegeworks') === 0 && p.res.wood >= 150 && p.res.stone >= 100 &&
+        (this.playerFortifications() >= 2 || t > 620)) {
+      if (place('siegeworks', tc.x - 5, tc.z + 7)) return;
+    }
     // Monument when rich (hard mode flex)
     if (p.age >= 2 && t > 500 && has('monument') === 0 && p.res.stone > 160 && p.res.gold > 180) {
       if (place('monument', tc.x - 7, tc.z - 6)) return;
@@ -304,16 +312,32 @@ export class AIController {
     return null;
   }
 
+  /** How much stone the player has put between the AI and their town. */
+  private playerFortifications(): number {
+    let n = 0;
+    for (const b of this.world.buildings.values()) {
+      if (b.owner !== 0) continue;
+      if (b.type === 'tower') n += 1;
+      else if (b.type === 'wall') n += 0.15;   // a wall matters as a line, not a brick
+    }
+    return n;
+  }
+
   // ---------------- military ----------------
   private trainMilitary(buildings: Building[], armySize: number) {
     const w = this.world;
     const p = w.players[OWNER];
     const cap = Math.min(22, 6 + this.waveN * 4);
     if (armySize >= cap) return;
+    const siegeCount = [...w.units.values()]
+      .filter(u => u.owner === OWNER && SIEGE_UNITS.has(u.type)).length;
     for (const b of buildings) {
       if (!b.built || !BUILDINGS[b.type].trains) continue;
       if (b.type === 'towncenter' || b.type === 'dock') continue;
       if (b.queue.length >= 2) continue;
+      // Siege is a specialist tool, not a doctrine: keep a couple, no more.
+      // They are slow and pop-hungry, and a wave of them alone would just die.
+      if (b.type === 'siegeworks' && (siegeCount >= 2 || armySize < 6)) continue;
       const options = trainableAt(p.faction, b.type, p.age).filter(u => u !== 'boat');
       if (options.length === 0) continue;
       // Prefer elites when affordable, fall back to basics if that fails

@@ -6,11 +6,26 @@ value references), **Proposal** (the design, with numbers), **Implementation**
 (where the work lands), and **Risk** (the tradeoff to watch). Tags: **Impact**
 (how much it changes the feel of a match) and **Effort** (S / M / L).
 
+> **Shipped so far:** #1 (damage classes and counters) and #3 (siege units and
+> the Siege Workshop). Their entries below are kept as written, with a note on
+> what actually landed and how the final numbers differ from the proposal.
+
 ---
 
 ## A. Combat & units
 
-### 1. Damage classes and a counter system
+### 1. Damage classes and a counter system — ✅ **shipped**
+
+> **What landed.** Armor split into melee and pierce channels on units, plus a
+> single `armor` value on buildings that siege damage ignores. Every unit has an
+> `armorClass` (`worker` / `infantry` / `ranged` / `cavalry` / `siege` / `wild` /
+> `building`) and a flat `bonus` table. Villagers were given their own `worker`
+> class rather than `infantry`, so counters stay a military system and archer
+> aggression against economies is not silently buffed. The selection panel shows
+> `ARM melee/pierce` and a "Strong vs" line, without which the whole system is
+> invisible. Measured: a spearman kills a chariot in 5 hits instead of 11, and a
+> hoplite's 3 melee armor turns a spear thrust into 4 damage while arrows still
+> land for 12.
 
 **Today.** `dealDamage()` (`src/sim/sim.ts:733`) resolves every attack as
 `max(1, rawDmg - armor)`. There is exactly one axis of defense and one of
@@ -85,7 +100,24 @@ same lines or hard mode becomes trivial.
 
 **Impact** High · **Effort** M
 
-### 3. Siege units and a Siege Workshop
+### 3. Siege units and a Siege Workshop — ✅ **shipped**
+
+> **What landed.** A Bronze Age `siegeworks` building training a **Battering
+> Ram** (220 HP, 4 pierce armor, +46 vs buildings, speed 1.85) and a **Catapult**
+> (90 HP, range 11, +18 vs buildings, 1.6-radius splash). Both are classed
+> `siege`, and every other unit type got a bonus against them, so siege is
+> countered broadly rather than by one unit. Siege engines never auto-target
+> troops and never retaliate when shot — they use a new
+> `World.findEnemyBuilding()` and keep grinding at what they were sent for.
+> Friendly splash was set to **half** damage rather than full, per the risk note
+> below. Measured through the real tick loop: a lone catapult razes a Watch
+> Tower in 81s while holding at 11.8 tiles — outside the tower's 8.5 reach, so
+> it takes no damage at all — and three rams level a Town Center in 38s where
+> three spearmen need 148s.
+>
+> **Known limitation:** the AI fields at most two engines and they walk at 1.85
+> while the rest of the wave moves at ~3, so its siege arrives late and alone.
+> The real fix is #6 (group-speed matching), not more siege logic.
 
 **Today.** A Town Center has 1800 HP (2250 with `masonry`), a Watch Tower shoots
 7 damage at 8.5 range on a 2.1s cooldown, and no unit in the game outranges it
@@ -1020,11 +1052,10 @@ music are new but stay within the project's synthesized-everything constraint.
 
 ## Suggested order
 
-**Tier 1 — structural fixes, small to medium.** #24 (event feed) first: the
-simulation already generates the data and the HUD throws it away, so it's the
-best effort-to-impact ratio here. Then #7 (garrison), which fixes the game's
-worst mobile-usability moment; #1 (counters), which makes army composition a
-decision and unlocks the tooltip, AI and formation work behind it; #8
+**Tier 1 — structural fixes, small to medium.** #1 (counters) and #3 (siege)
+are done. Next: #24 (event feed), the best effort-to-impact ratio left — the
+simulation already generates the data and the HUD throws it away. Then #7
+(garrison), which fixes the game's worst mobile-usability moment; #8
 (specialist camps), which gives the enormous map an economic reason to exist;
 and #26 (save/resume), which stops phone sessions from ending badly.
 
@@ -1034,11 +1065,13 @@ against the AI from unfolding identically. #5, #6 and #18 round out the combat
 and city feel.
 
 **Tier 3 — scope.** #15 (navy) makes a quarter of generated maps playable as
-designed. #3 (siege) fixes the endgame and counterbalances the defensive
-additions in tier 1. #14 (new civs) and #25 (tutorial) are what make the game
-feel finished to a new player.
+designed. #14 (new civs) and #25 (tutorial) are what make the game feel finished
+to a new player.
 
 **A note on balance direction.** #7 (garrison), #16 (solid walls), #18 (repair)
 and #10 (tower/wall adjacency) all push toward defense. #3 (siege) is the
-counterweight. Shipping the defensive items without siege would make turtling
-dominant — sequence accordingly.
+counterweight, and it is now in — which means the defensive items are safe to
+build on top of. Note that #1 already moved the needle here on its own: building
+armor makes melee razing roughly 30% slower and arrows nearly useless against
+stone, so a fortified town is meaningfully harder to crack than it was even
+before a single garrison lands.

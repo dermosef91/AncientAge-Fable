@@ -5,16 +5,34 @@ export type ResType = 'food' | 'wood' | 'stone' | 'gold';
 export type UnitTypeId =
   | 'villager' | 'spearman' | 'archer'
   | 'chariot' | 'hoplite' | 'legionary'
+  | 'ram' | 'catapult'
   | 'boat' | 'tradecart'
   // the wilds (owner 2)
   | 'gazelle' | 'boar' | 'wolf' | 'mercenary' | 'refugee';
 export type BuildingTypeId =
   | 'towncenter' | 'house' | 'farm' | 'storehouse' | 'barracks'
-  | 'range' | 'tower' | 'wall' | 'monument' | 'dock'
+  | 'range' | 'siegeworks' | 'tower' | 'wall' | 'monument' | 'dock'
   | 'market' | 'shrine' | 'temple' | 'amphitheater' | 'academy'
   | 'statue' | 'garden' | 'plaza' | 'lighthouse' | 'forum' | 'wonder'
   // encounter props (owner 2)
   | 'den' | 'camp' | 'cairn' | 'pedestal';
+
+/**
+ * What a target *is*, for counter bonuses. Attacks carry a table of flat
+ * damage bonuses keyed by the class of whatever they land on.
+ */
+export type ArmorClass =
+  | 'worker'    // villagers, carts, boats, refugees — never the target of counters
+  | 'infantry' | 'ranged' | 'cavalry' | 'siege'
+  | 'wild'      // animals and deserters
+  | 'building';
+
+/**
+ * Which armor channel an attack is resolved against. `melee` and `siege` read
+ * a unit's melee armor, `pierce` reads its pierce armor; `siege` alone ignores
+ * building armor, which is what makes siege engines the answer to stone.
+ */
+export type DamageType = 'melee' | 'pierce' | 'siege';
 export type NodeKind = 'tree' | 'berries' | 'stone' | 'gold' | 'fish' | 'carcass';
 export type Difficulty = 'easy' | 'normal' | 'hard';
 
@@ -143,7 +161,9 @@ export interface Projectile {
   total: number;            // flight seconds
   dmg: number;
   arc: number;
-  kind: 'arrow' | 'spear';
+  kind: 'arrow' | 'spear' | 'boulder';
+  /** Who loosed it — resolves counter bonuses and splash at impact. Null = a tower. */
+  srcType: UnitTypeId | null;
 }
 
 // ---------- Events (sim -> presentation) ----------
@@ -151,7 +171,7 @@ export type SimEvent =
   | { t: 'hit'; x: number; z: number; y: number; melee: boolean }
   | { t: 'die'; id: number; x: number; z: number; unitType: UnitTypeId; owner: number }
   | { t: 'boom'; id: number; x: number; z: number; size: number; bType: BuildingTypeId; owner: number }
-  | { t: 'shoot'; x: number; z: number }
+  | { t: 'shoot'; x: number; z: number; heavy?: boolean }
   | { t: 'built'; id: number; owner: number; bType: BuildingTypeId; x: number; z: number }
   | { t: 'trained'; owner: number; unitType: UnitTypeId }
   | { t: 'research'; owner: number; tech: string }

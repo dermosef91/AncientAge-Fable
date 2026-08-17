@@ -104,6 +104,13 @@ export class Sound {
   swing() { if (!this.throttled('swing', 100)) this.noise(0.1, { freq: 500, q: 1.4, gain: 0.06, slide: 1600 }); }
   impact() { if (!this.throttled('impact', 90)) { this.tone(120, 0.1, { type: 'triangle', gain: 0.1, slide: 70 }); this.noise(0.06, { freq: 900, gain: 0.06 }); } }
   death() { if (!this.throttled('death', 150)) this.tone(300, 0.3, { type: 'sawtooth', gain: 0.05, slide: 90 }); }
+  /** Catapult loosing: the timber crack of the arm, then the stone leaving. */
+  loose() {
+    if (this.throttled('loose', 220)) return;
+    this.noise(0.09, { freq: 240, q: 1.2, gain: 0.16 });
+    this.tone(150, 0.22, { type: 'triangle', gain: 0.13, slide: 60 });
+    this.noise(0.3, { freq: 700, type: 'lowpass', gain: 0.07, slide: 260, delay: 0.06 });
+  }
   boom() {
     this.tone(90, 0.6, { type: 'triangle', gain: 0.22, slide: 38 });
     this.noise(0.7, { freq: 400, type: 'lowpass', gain: 0.2, slide: 90 });
@@ -137,7 +144,7 @@ export class Sound {
           else if (e.kind === 'stone' || e.kind === 'gold') this.mine();
           else if (Math.random() < 0.3) this.chop();
           break;
-        case 'shoot': if (isExplored(e.x, e.z)) this.arrow(); break;
+        case 'shoot': if (isExplored(e.x, e.z)) { if (e.heavy) this.loose(); else this.arrow(); } break;
         case 'hit': if (isExplored(e.x, e.z)) this.impact(); break;
         case 'die': if (isExplored(e.x, e.z)) this.death(); break;
         case 'boom': if (isExplored(e.x, e.z)) this.boom(); break;

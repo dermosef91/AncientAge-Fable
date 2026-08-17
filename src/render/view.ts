@@ -7,7 +7,7 @@ import { clamp, lerp } from '../core/utils';
 import { heightAt, WATER_Y } from '../sim/map';
 import type { World } from '../sim/world';
 import { assets, instantiateCharacter, VILLAGER_CLIPS, type CharAsset } from './assets';
-import { arrowGeo, Flags, Markers, Particles } from './effects';
+import { arrowGeo, boulderGeo, Flags, Markers, Particles } from './effects';
 import {
   BUILDING_VIS_HEIGHT, buildingGeo, carryGeo, cropGeo, nodeGeo, rubbleGeo,
   scaffoldGeo, unitGeo, weaponGeo
@@ -101,6 +101,7 @@ export class GameView {
     blue: new THREE.MeshBasicMaterial({ color: 0x5aa8e8, depthWrite: false })
   };
   private arrowG = arrowGeo();
+  private boulderG = boulderGeo();
   private raycaster = new THREE.Raycaster();
   private groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   private tmpV = new THREE.Vector3();
@@ -420,12 +421,16 @@ export class GameView {
         y += Math.sin(time * 1.6 + phase) * 0.04;
         v.group.rotation.z = Math.sin(time * 1.2 + phase) * 0.04;
       } else if (moving) {
-        const speed = u.type === 'chariot' ? 14 : 11;
-        y += Math.abs(Math.sin(time * speed + phase)) * (u.type === 'chariot' ? 0.03 : 0.055);
-        v.group.rotation.z = Math.sin(time * speed + phase) * 0.05;
-        if (u.type === 'chariot' && Math.random() < rdt * 8) {
+        const siege = u.type === 'ram' || u.type === 'catapult';
+        // Siege engines lumber: a slow jolt over the ruts, never a jog.
+        const speed = u.type === 'chariot' ? 14 : siege ? 5 : 11;
+        y += Math.abs(Math.sin(time * speed + phase)) * (u.type === 'chariot' ? 0.03 : siege ? 0.02 : 0.055);
+        v.group.rotation.z = Math.sin(time * speed + phase) * (siege ? 0.018 : 0.05);
+        if ((u.type === 'chariot' || siege) && Math.random() < rdt * (siege ? 6 : 8)) {
           this.particles.spawn(x, 0.1, z, 0, 0.4, 0, 0.5, 0.16, 0xd9c8a0, 0.5);
         }
+      } else if (u.type === 'ram' || u.type === 'catapult') {
+        v.group.rotation.z = 0;   // timber does not breathe
       } else {
         // idle breathing
         v.group.rotation.z = 0;
@@ -830,9 +835,11 @@ export class GameView {
     const seen = new Set<number>();
     for (const p of w.projectiles) {
       seen.add(p.id);
+      const boulder = p.kind === 'boulder';
       let m = this.projViews.get(p.id);
       if (!m) {
-        m = new THREE.Mesh(this.arrowG, MAT.main);
+        m = new THREE.Mesh(boulder ? this.boulderG : this.arrowG, MAT.main);
+        m.castShadow = boulder;
         this.scene.add(m);
         this.projViews.set(p.id, m);
       }
@@ -841,11 +848,15 @@ export class GameView {
       const z = lerp(p.pz, p.z, alpha);
       m.position.set(x, y, z);
       const dx = p.x - p.px, dy = p.y - p.py, dz = p.z - p.pz;
-      if (Math.abs(dx) + Math.abs(dz) > 0.001) {
+      if (boulder) {
+        // a stone tumbles rather than points
+        m.rotation.x += 0.22;
+        m.rotation.z += 0.15;
+      } else if (Math.abs(dx) + Math.abs(dz) > 0.001) {
         m.rotation.y = Math.atan2(dx, dz);
         m.rotation.x = -Math.atan2(dy, Math.hypot(dx, dz));
       }
-      if (Math.random() < 0.4) this.particles.trail(x, y, z);
+      if (Math.random() < (boulder ? 0.8 : 0.4)) this.particles.trail(x, y, z);
     }
     for (const [id, m] of this.projViews) {
       if (!seen.has(id)) {
