@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { MAP_H, MAP_W } from '../core/config';
 import type { Faction } from '../core/types';
 import { clamp, lerp, makeNoise2D } from '../core/utils';
-import type { CivicProp } from '../sim/civic';
+import type { CivicKind, CivicProp } from '../sim/civic';
 import { heightAt, WATER_Y } from '../sim/map';
 import { F_WATER } from '../sim/pathfinding';
 import type { World } from '../sim/world';
@@ -44,10 +44,12 @@ const SCATTER_KINDS = [
 
 /** How far paving sinks into the ground so it never z-fights with it. */
 const PAVING_SINK = -0.035;
+/** A dirt path is worn *into* the ground, so it sits lower than laid stone. */
+const PATH_SINK = -0.045;
 
 interface TreeHandle { mesh: THREE.InstancedMesh; index: number; x: number; z: number; baseScale: number }
 
-/** A growing instanced batch of identical road slabs. */
+/** A growing instanced batch of identical street slabs. */
 interface RoadBatch { mesh: THREE.InstancedMesh; kind: string; faction: Faction; count: number; cap: number }
 
 export class TerrainView {
@@ -65,10 +67,11 @@ export class TerrainView {
   private stumpCount = 0;
   private dummy = new THREE.Object3D();
 
-  // civic layer: roads and ornaments the settlements lay down as they grow
+  // civic layer: streets and ornaments the settlements lay down as they grow
   private civicGroup = new THREE.Group();
   private civicRev = -1;
-  private civicSeen = new Set<number>();
+  /** Prop id -> the kind it was raised as, so a path paved over is re-raised. */
+  private civicSeen = new Map<number, CivicKind>();
   private ornaments = new Map<number, THREE.Mesh>();
   private roadBatches = new Map<string, RoadBatch>();
   private roadSlots = new Map<number, { key: string; i: number }>();
@@ -476,9 +479,10 @@ export class TerrainView {
 
   // ---------------- civic layer ----------------
   /**
-   * Mirror the roads and ornaments the simulation has laid down. Roads are
-   * append-only and numerous, so they ride in growing instanced batches;
-   * ornaments are few and can be built over, so each gets its own mesh.
+   * Mirror the streets and ornaments the simulation has laid down. Streets are
+   * numerous and change surface only once (dirt paved over at Town), so they
+   * ride in growing instanced batches; ornaments are few and can be built over,
+   * so each gets its own mesh.
    */
   private syncCivic() {
     const w = this.world;
@@ -487,38 +491,48 @@ export class TerrainView {
     const live = new Set<number>();
     for (const p of w.civic) {
       live.add(p.id);
-      if (this.civicSeen.has(p.id)) continue;
-      this.civicSeen.add(p.id);
-      if (p.kind === 'road') this.addRoad(p);
+      const raised = this.civicSeen.get(p.id);
+      if (raised === p.kind) continue;
+      // A path that has been paved over keeps its id: drop the dirt, lay stone.
+      if (raised !== undefined) this.dropCivic(p.id);
+      this.civicSeen.set(p.id, p.kind);
+      if (p.kind === 'road' || p.kind === 'path') this.addStreet(p);
       else this.addOrnament(p);
     }
-    for (const id of this.civicSeen) {
+    for (const id of this.civicSeen.keys()) {
       if (live.has(id)) continue;
       this.civicSeen.delete(id);
-      const mesh = this.ornaments.get(id);
-      if (mesh) {
-        this.civicGroup.remove(mesh);
-        this.ornaments.delete(id);
-      }
-      const slot = this.roadSlots.get(id);
-      if (slot) {
-        // instance slots are never reclaimed — collapse the slab instead
-        const batch = this.roadBatches.get(slot.key);
-        if (batch) {
-          this.dummy.position.set(0, -50, 0);
-          this.dummy.rotation.set(0, 0, 0);
-          this.dummy.scale.setScalar(0);
-          this.dummy.updateMatrix();
-          batch.mesh.setMatrixAt(slot.i, this.dummy.matrix);
-          batch.mesh.instanceMatrix.needsUpdate = true;
-        }
-        this.roadSlots.delete(id);
-      }
+      this.dropCivic(id);
     }
   }
 
-  private addRoad(p: CivicProp) {
-    const kind = p.variant ? 'paving2' : 'paving';
+  /** Take one civic prop out of the scene, whichever way it was raised. */
+  private dropCivic(id: number) {
+    const mesh = this.ornaments.get(id);
+    if (mesh) {
+      this.civicGroup.remove(mesh);
+      this.ornaments.delete(id);
+    }
+    const slot = this.roadSlots.get(id);
+    if (slot) {
+      // instance slots are never reclaimed — collapse the slab instead
+      const batch = this.roadBatches.get(slot.key);
+      if (batch) {
+        this.dummy.position.set(0, -50, 0);
+        this.dummy.rotation.set(0, 0, 0);
+        this.dummy.scale.setScalar(0);
+        this.dummy.updateMatrix();
+        batch.mesh.setMatrixAt(slot.i, this.dummy.matrix);
+        batch.mesh.instanceMatrix.needsUpdate = true;
+      }
+      this.roadSlots.delete(id);
+    }
+  }
+
+  private addStreet(p: CivicProp) {
+    const kind = p.kind === 'path'
+      ? (p.variant ? 'path2' : 'path')
+      : (p.variant ? 'paving2' : 'paving');
     const key = `${kind}:${p.faction}`;
     let batch = this.roadBatches.get(key);
     if (!batch) {
@@ -528,7 +542,8 @@ export class TerrainView {
     }
     if (batch.count >= batch.cap) this.growRoadBatch(batch);
     const i = batch.count++;
-    this.dummy.position.set(p.x, heightAt(this.world, p.x, p.z) + PAVING_SINK, p.z);
+    const sink = p.kind === 'path' ? PATH_SINK : PAVING_SINK;
+    this.dummy.position.set(p.x, heightAt(this.world, p.x, p.z) + sink, p.z);
     this.dummy.rotation.set(0, 0, 0);
     this.dummy.scale.setScalar(1);
     this.dummy.updateMatrix();
