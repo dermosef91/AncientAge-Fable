@@ -392,10 +392,10 @@ export class HUD {
           <div class="name">${def.name}${tag}
             <span class="status">${status}</span></div>
           <div class="statrow">
-            <span title="Attack">ATK <b>${s.atk.toFixed(0)}</b></span>
-            <span title="Melee armor / pierce armor">ARM <b>${s.meleeArmor}/${s.pierceArmor}</b></span>
-            <span title="Range">RNG <b>${def.range > 0 ? def.range.toFixed(1) : '1'}</b></span>
-            <span title="Speed">SPD <b>${s.speed.toFixed(1)}</b></span>
+            <span title="Attack">${icon('statAtk', 12)}<b>${s.atk.toFixed(0)}</b></span>
+            <span title="Melee armor / pierce armor">${icon('statArm', 12)}<b>${s.meleeArmor}/${s.pierceArmor}</b></span>
+            <span title="Range">${icon('statRng', 12)}<b>${def.range > 0 ? def.range.toFixed(1) : '1'}</b></span>
+            <span title="Speed">${icon('statSpd', 12)}<b>${s.speed.toFixed(1)}</b></span>
             ${carryTxt}
           </div>
           ${counterHtml(u.type)}
