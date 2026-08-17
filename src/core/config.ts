@@ -39,7 +39,8 @@ export const SETTLEMENTS: SettlementDef[] = [
   },
   {
     name: 'Town', numeral: 'IV', cost: { food: 300, gold: 100 }, time: 32,
-    blurb: 'Unlocks elite troops, towers, the Academy and new town centers.'
+    blurb: 'Unlocks elite troops, towers, the Academy and new town centers. '
+      + 'The dirt paths between your buildings are paved over in stone.'
   },
   {
     name: 'City', numeral: 'V', cost: { food: 460, gold: 190, stone: 100 }, time: 40,
@@ -52,6 +53,12 @@ export const SETTLEMENTS: SettlementDef[] = [
 ];
 
 export const MAX_LEVEL = SETTLEMENTS.length - 1;
+
+/**
+ * Below this level a settlement only wears its streets into the dirt; on
+ * reaching it the whole network is paved in the faction's stone (see civic.ts).
+ */
+export const PAVED_ROAD_LEVEL = 3;   // Town
 
 /** Flat damage added when an attack lands on a target of this class. */
 export type BonusTable = Partial<Record<ArmorClass, number>>;

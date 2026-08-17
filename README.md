@@ -108,12 +108,14 @@ you could once ignore now needs an answer.
   automatically along presets you pick (Balanced / Growth / Treasury).
 - **Lighthouse** — boats gather 30% faster, sail 20% faster.
 - **The city builds itself** — you never place decoration. Every finished
-  building is linked to its nearest neighbour and to the nearest hub by a paved
-  road, so a sprawl of houses reads as one city; and the larger works gather
+  building is linked to its nearest neighbour and to the nearest hub by a
+  street, so a sprawl of houses reads as one city; and the larger works gather
   gardens, plazas and statues in the spare ground around them as your
   settlement grows (gardens from Hamlet, plazas from Village, statues from
-  Town). It is all scenery: nothing blocks a path, and laying a foundation over
-  a garden simply sweeps it away.
+  Town). A camp, hamlet or village only wears its streets into the dirt —
+  reaching **Town** paves the whole network at once, in the same stone as the
+  plaza around your town center. It is all scenery: nothing blocks a path, and
+  laying a foundation over a garden simply sweeps it away.
 - **Wonder** *(Metropolis)* — complete it and defend it for three minutes to win
   without razing a single town center. The enemy will come with everything.
 

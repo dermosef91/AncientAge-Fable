@@ -1944,6 +1944,26 @@ export function propGeo(kind: string, faction?: Faction): THREE.BufferGeometry {
       case 'civic_statue': statueB(p, st, faction ?? 'greece'); break;
       case 'civic_garden': gardenB(p, st, faction ?? 'greece'); break;
       case 'civic_plaza': plazaB(p, st, faction ?? 'greece'); break;
+      // Dirt path: what a settlement below Town has instead of paved roads —
+      // ground worn bare by feet, not a surface anyone laid. No kerb and no
+      // cobbles; the base plate covers the whole cell so a long run has no
+      // seams, and the scuffing on top is what keeps it from reading as tiles.
+      case 'path':
+      case 'path2': {
+        const alt = kind === 'path2';
+        p.box(alt ? 0x917952 : 0x9a8158, 1.02, 0.065, 1.02, 0, 0.032, 0, { shade: alt ? 0.97 : 1 });
+        // Scuffing sits a hair proud of the plate and is otherwise buried in
+        // it: patches of darker and lighter earth, not blocks lying on top.
+        p.box(alt ? 0x8d7550 : 0x917a54, 0.72, 0.02, 0.58, alt ? 0.12 : -0.11, 0.058, alt ? -0.09 : 0.11,
+          { ry: alt ? 0.42 : -0.3 });
+        p.box(alt ? 0xa2895d : 0xa38b60, 0.44, 0.02, 0.34, alt ? -0.26 : 0.27, 0.058, alt ? 0.24 : -0.22,
+          { ry: alt ? -0.5 : 0.6 });
+        // a pebble pressed into the earth, and a tuft the feet missed
+        p.ico(PAL.stoneLight, 0.04, alt ? 0.31 : -0.33, 0.062, alt ? -0.31 : 0.27, { ry: alt ? 1 : 2, shade: 0.95 });
+        p.cone(0x8f9257, 0.035, 0.12, alt ? -0.36 : 0.35, 0.11, alt ? -0.28 : 0.33,
+          { seg: 4, rz: alt ? 0.28 : -0.24, shade: 0.92 });
+        break;
+      }
       // Faction paving: flat slabs that form plazas and roads around a base.
       // Two variants per faction so a plaza doesn't look rubber-stamped.
       case 'paving':
