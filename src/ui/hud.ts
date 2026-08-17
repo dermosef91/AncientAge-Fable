@@ -559,6 +559,8 @@ export class HUD {
     }
     if (vils.length > 0 || mil.length > 0) {
       addBtn(icon('stop', 22), 'Stop', { onClick: () => { this.input.stopSelected(); this.refreshSelectionUI(); } });
+    }
+    if (mil.length > 0) {
       addBtn(icon('hold', 22), 'Hold', {
         cls: holdOn ? 'toggled' : '',
         onClick: () => { this.input.toggleHold(); this.refreshSelectionUI(); }
