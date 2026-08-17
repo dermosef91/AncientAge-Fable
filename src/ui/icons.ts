@@ -97,12 +97,12 @@ const P: Record<string, string> = {
       <circle cx="12" cy="21.4" r="1.7"/>
     </g>`,
   statArm: `<path d="M12 2.4l8 3v6.3c0 4.8-3.3 8.8-8 10.6-4.7-1.8-8-5.8-8-10.6V5.4z" fill="currentColor"/>`,
-  statRng: `<g stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M5 5.8C4.4 12.8 11.2 19.6 18.2 19" stroke-width="2.2"/>
-      <path d="M5 5.8L18.2 19" stroke-width="1.3"/>
-      <path d="M9.4 14.6L20.4 3.6" stroke-width="2.2"/>
-      <path d="M16.4 3.6h4v4" stroke-width="2.2"/>
-    </g>`,
+  statRng: `<g stroke="currentColor" fill="none" stroke-linecap="round">
+      <path d="M5.6 2.4C17.4 6 17.4 18 5.6 21.6" stroke-width="2.4"/>
+      <path d="M5.6 2.4v19.2" stroke-width="1.2"/>
+      <path d="M2.6 12h14" stroke-width="2"/>
+    </g>
+    <path d="M22.4 12l-6.2-3.4v6.8z" fill="currentColor"/>`,
   statSpd: `<g stroke="currentColor" stroke-width="2.8" fill="none" stroke-linecap="round" stroke-linejoin="round">
       <path d="M5 5.2L11.8 12 5 18.8"/>
       <path d="M12.6 5.2L19.4 12l-6.8 6.8"/>
