@@ -308,7 +308,7 @@ export class AIController {
   private trainMilitary(buildings: Building[], armySize: number) {
     const w = this.world;
     const p = w.players[OWNER];
-    const cap = Math.min(22, 6 + this.waveN * 4);
+    const cap = Math.min(18, 5 + this.waveN * 3);
     if (armySize >= cap) return;
     for (const b of buildings) {
       if (!b.built || !BUILDINGS[b.type].trains) continue;
@@ -334,8 +334,10 @@ export class AIController {
     const waveSize = this.diff.waveBase + this.diff.waveGrow * this.waveN;
     const ready = military.length;
     const timeUp = w.time >= this.nextWaveAt;
-    const overflowing = ready >= Math.min(20, waveSize * 2.4);
-    const lateGame = w.time > 900 && ready >= 10 && this.attackers.length === 0;
+    // Overflow attacks only between scheduled waves — never before the first one,
+    // or a small waveBase would trigger a rush long before firstWave.
+    const overflowing = this.waveN > 0 && ready >= Math.min(20, waveSize * 2.4);
+    const lateGame = w.time > 1100 && ready >= 12 && this.attackers.length === 0;
 
     if ((timeUp && ready >= Math.min(waveSize, 22)) || overflowing || lateGame) {
       this.waveN++;

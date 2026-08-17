@@ -459,15 +459,15 @@ export const DIFFICULTY: Record<Difficulty, {
 }> = {
   easy: {
     name: 'Laurel', icon: 'laurel', desc: 'A distant rival who builds slowly and raids rarely.',
-    aiGatherMul: 0.62, aiVillagers: 8, firstWave: 390, waveEvery: 225, waveBase: 2, waveGrow: 1
+    aiGatherMul: 0.62, aiVillagers: 8, firstWave: 480, waveEvery: 280, waveBase: 2, waveGrow: 1
   },
   normal: {
     name: 'Bronze', icon: 'shields', desc: 'A steady foe. Expect organised raids in time.',
-    aiGatherMul: 0.82, aiVillagers: 11, firstWave: 335, waveEvery: 198, waveBase: 3, waveGrow: 2
+    aiGatherMul: 0.82, aiVillagers: 11, firstWave: 410, waveEvery: 245, waveBase: 2, waveGrow: 2
   },
   hard: {
     name: 'Iron', icon: 'ironhelm', desc: 'A patient war machine that grows dangerous.',
-    aiGatherMul: 1.15, aiVillagers: 14, firstWave: 258, waveEvery: 152, waveBase: 4, waveGrow: 3
+    aiGatherMul: 1.15, aiVillagers: 14, firstWave: 320, waveEvery: 190, waveBase: 3, waveGrow: 2
   }
 };
 
