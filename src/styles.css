@@ -9,6 +9,9 @@
   --text: #f2e8d5;
   --text-dim: #bda98a;
   --gold: #e0b054;
+  /* right-hand rail: one flat pairing, light beige on brownish dark grey */
+  --rail-bg: #3b352d;
+  --rail-ink: #efe3c8;
   --green: #52c878;
   --red: #e05a44;
   --blue: #58a6e8;
@@ -183,15 +186,23 @@ img.thumb, img.bthumb, img.pthumb, img.chip-thumb, img.qthumb, img.act-thumb, im
   box-shadow: var(--shadow);
   display: flex; align-items: center; justify-content: center;
   position: relative;
+  background: var(--rail-bg);
+  border: 1px solid rgba(239, 227, 200, 0.18);
+  color: var(--rail-ink);
 }
+#side-right button:active { background: #4a4238; }
+/* The shared icon set is multi-coloured; on the rail every glyph is flattened to
+   the one beige. Matching on the attributes keeps fill-only shapes unstroked. */
+#side-right .ico [fill]:not([fill="none"]) { fill: currentColor; }
+#side-right .ico [stroke]:not([stroke="none"]) { stroke: currentColor; }
 #side-right .badge {
   position: absolute; top: -3px; right: -3px;
   min-width: 19px; height: 19px;
   padding: 0 5px;
   border-radius: 10px;
-  background: var(--gold); color: #2a1f0c;
+  background: var(--rail-ink); color: var(--rail-bg);
   font-size: 11px; font-weight: 800; line-height: 19px;
-  border: 1.5px solid rgba(26, 19, 11, 0.85);
+  border: 1.5px solid var(--rail-bg);
 }
 
 /* ---------------- minimap ---------------- */

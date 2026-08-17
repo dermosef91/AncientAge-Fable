@@ -87,10 +87,23 @@ const P: Record<string, string> = {
     <circle cx="12" cy="16.8" r="1.3" fill="${G.dark}"/>`,
 
   // ---------- ui / status ----------
-  army: `<path d="M4.6 13.4C4.6 7.9 7.9 4.2 12 4.2s7.4 3.7 7.4 9.2v1.6h-3.8v-1.6c0-2.4-1.6-4-3.6-4s-3.6 1.6-3.6 4v6.8H4.6z"
-      fill="#cbb27a"/>
-    <path d="M12 2.2c2.8 0 4.8 1.8 5.6 4.4-1.4-1.2-3-1.8-5.6-1.8s-4.2.6-5.6 1.8C7.2 4 9.2 2.2 12 2.2z" fill="${G.red}"/>
-    <path d="M9.2 12.4h5.6v2.2H9.2z" fill="#8d7a4e"/>`,
+  // Two crossed swords. They meet high on the blades so the guards, grips and
+  // pommels stay clear of each other — the silhouette reads as two swords even
+  // when the whole icon is filled with one flat colour.
+  army: `<g fill="${G.cloth}">
+      <g transform="rotate(45 12 10.5)">
+        <path d="M12 1.2l1.8 3.7v10.4h-3.6V4.9z"/>
+        <rect x="8.3" y="15.3" width="7.4" height="2.4" rx="1.2"/>
+        <rect x="10.8" y="17.6" width="2.4" height="2.8"/>
+        <circle cx="12" cy="21.2" r="1.8"/>
+      </g>
+      <g transform="rotate(-45 12 10.5)">
+        <path d="M12 1.2l1.8 3.7v10.4h-3.6V4.9z"/>
+        <rect x="8.3" y="15.3" width="7.4" height="2.4" rx="1.2"/>
+        <rect x="10.8" y="17.6" width="2.4" height="2.8"/>
+        <circle cx="12" cy="21.2" r="1.8"/>
+      </g>
+    </g>`,
   villagers: `<circle cx="12" cy="6.6" r="3.2" fill="${G.cloth}"/>
     <path d="M5.6 20.4c0-3.8 2.9-6.6 6.4-6.6s6.4 2.8 6.4 6.6z" fill="${G.cloth}"/>
     <path d="M12 13.8v6.6" stroke="${G.blueDeep}" stroke-width="1.8"/>`,
