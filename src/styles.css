@@ -384,7 +384,8 @@ img.thumb, img.bthumb, img.pthumb, img.chip-thumb, img.qthumb, img.act-thumb, im
 .act-btn.primary .lbl { color: #4a3410; }
 .act-btn.primary .cost { color: #5a4210; }
 .act-btn.danger { border-color: rgba(224, 90, 68, 0.5); }
-.act-btn.toggled { background: rgba(224, 90, 68, 0.35); border-color: var(--red); }
+.act-btn.toggled { background: rgba(224, 90, 68, 0.35); border-color: var(--red); color: var(--text); }
+.act-btn.toggled .lbl { color: var(--text); }
 
 .cost-chip { display: inline-flex; align-items: center; gap: 2px; font-variant-numeric: tabular-nums; }
 

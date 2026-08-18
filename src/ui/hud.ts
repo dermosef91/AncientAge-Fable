@@ -565,7 +565,7 @@ export class HUD {
       });
     }
     if (carts.length > 0) {
-      addBtn(icon('coinage', 22), 'Trade', {
+      addBtn(icon('trade', 22), 'Trade', {
         cls: 'primary',
         onClick: () => {
           // send the carts back to work via the nearest standing market
@@ -607,7 +607,7 @@ export class HUD {
           const next = SETTLEMENTS[p.level + 1];
           const queued = b.queue.some(q => q.kind === 'level');
           if (!queued) {
-            addBtn(icon('age', 22), next.name, {
+            addBtn(icon('levelUp', 22), next.name, {
               cost: costHtml(next.cost, 11),
               cls: 'primary',
               key: 'level',
@@ -639,7 +639,7 @@ export class HUD {
         // In-place upgrade (shrine -> temple)
         const upTo = BUILDINGS[b.type].upgradesTo;
         if (upTo && !b.queue.some(q => q.kind === 'upgrade') && p.level >= BUILDINGS[upTo].level) {
-          addBtn(icon('upgrade', 22), BUILDINGS[upTo].name, {
+          addBtn(icon('levelUp', 22), BUILDINGS[upTo].name, {
             cost: costHtml(BUILDINGS[upTo].cost, 11),
             cls: 'primary',
             key: 'upg:' + upTo,
@@ -674,7 +674,7 @@ export class HUD {
         }
         // Forum labor pool
         if (b.type === 'forum') {
-          addBtn(icon('labor', 22), p.laborOn ? 'Labor: On' : 'Labor: Off', {
+          addBtn(icon('laborToggle', 22), p.laborOn ? 'Labor: On' : 'Labor: Off', {
             cls: p.laborOn ? 'toggled' : 'primary',
             onClick: () => {
               p.laborOn = !p.laborOn;
