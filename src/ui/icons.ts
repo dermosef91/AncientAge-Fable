@@ -12,6 +12,8 @@ const G = {
   leaf: '#7f9a4a',
   blue: '#5a9fe0',
   blueDeep: '#2f6fd0',
+  teal: '#1fb39a',
+  tealDeep: '#12806e',
   red: '#d9563f',
   cloth: '#ece0c6',
   steel: '#ccd2d8',
@@ -187,6 +189,36 @@ const P: Record<string, string> = {
     <path d="M16.4 14h3l1.8-3.4-2.4-4.2h-3.4" stroke="${G.gold}" stroke-width="1.9" fill="none"
       stroke-linecap="round" stroke-linejoin="round"/>
     <path d="M18 3.4l3.4 3-3.8 1" fill="${G.gold}"/>`,
+  // ---------- civilization technologies ----------
+  cartography: `<path d="M3 5.6l6-2.2 6 2.2 6-2.2v15l-6 2.2-6-2.2-6 2.2z" fill="${G.cloth}"/>
+    <path d="M9 3.4v15.2M15 5.6v15.2" stroke="${G.stoneDark}" stroke-width="1.1" fill="none"/>
+    <path d="M4.6 14.4c2.2-2.6 4-1 5.8-3s3.6-.6 5.4-2.6" stroke="${G.tealDeep}" stroke-width="1.5"
+      fill="none" stroke-linecap="round" stroke-dasharray="2.4 1.8"/>
+    <path d="M17.8 12.4c1.6 0 2.8 1.2 2.8 2.8 0 2-2.8 5-2.8 5s-2.8-3-2.8-5c0-1.6 1.2-2.8 2.8-2.8z" fill="${G.red}"/>
+    <circle cx="17.8" cy="15.2" r="1.1" fill="${G.cloth}"/>`,
+  phalanx: `<g stroke="${G.steel}" stroke-width="1.5" stroke-linecap="round">
+      <path d="M6.4 8.6L4.8 3.2M12 8.2l-1.4-5.4M17.6 8.6L16 3.2"/>
+    </g>
+    <circle cx="6.4" cy="14.4" r="5" fill="${G.bronze}"/>
+    <circle cx="17.6" cy="14.4" r="5" fill="${G.bronze}"/>
+    <circle cx="12" cy="14.4" r="5.4" fill="${G.stoneDark}"/>
+    <circle cx="12" cy="14.4" r="4.2" fill="${G.bronze}"/>
+    <circle cx="12" cy="14.4" r="1.8" fill="${G.gold}"/>`,
+  roads: `<path d="M8.4 21.4L11 4.6h2l2.6 16.8z" fill="${G.stone}"/>
+    <path d="M11.6 4.6h.8l.4 3h-1.6zM11.2 10.2h1.6l.5 3.4h-2.6zM10.5 16.2h3l.6 4h-4.2z" fill="${G.cloth}"/>
+    <path d="M7.6 21.4L10.2 4.6M16.4 21.4L13.8 4.6" stroke="${G.stoneDark}" stroke-width="1.2"
+      fill="none" stroke-linecap="round"/>
+    <path d="M3.4 20.4l3.2-14M20.6 20.4l-3.2-14" stroke="${G.leaf}" stroke-width="1.6"
+      fill="none" stroke-linecap="round"/>`,
+  standard: `<path d="M12 21.6V6.4" stroke="${G.woodDark}" stroke-width="2.1" stroke-linecap="round"/>
+    <rect x="6.6" y="7.4" width="10.8" height="1.9" rx=".9" fill="${G.gold}"/>
+    <path d="M7.4 9.4h9.2v5.4l-4.6 2-4.6-2z" fill="${G.red}"/>
+    <path d="M9.6 11.6h4.8M9.6 13.4h4.8" stroke="${G.gold}" stroke-width="1.2" stroke-linecap="round"/>
+    <path d="M12 1.8c1.9 0 3.4 1.5 3.4 3.3 0 .6-.3 1.1-.8 1.3H9.4c-.5-.2-.8-.7-.8-1.3 0-1.8 1.5-3.3 3.4-3.3z"
+      fill="${G.gold}"/>
+    <path d="M15.4 4.2c1.4-.6 2.6-.4 3.6.6-1.2.4-2.2.6-3.2.4zM8.6 4.2c-1.4-.6-2.6-.4-3.6.6 1.2.4 2.2.6 3.2.4z"
+      fill="${G.goldDeep}"/>`,
+
   rotate: `<path d="M19.4 12a7.4 7.4 0 11-2.2-5.3" stroke="${G.cloth}" stroke-width="2.5" fill="none"
       stroke-linecap="round"/>
     <path d="M17.8 2.6l.2 5-4.6-1.6z" fill="${G.cloth}"/>
@@ -204,7 +236,7 @@ const P: Record<string, string> = {
   // ---------- faction emblems ----------
   egypt: `<path d="M2.6 12.6c3.2-4.4 7-6.6 10.4-6.6 3.2 0 6 2 8.4 5.6-2.4 3.4-5.2 5.2-8.4 5.2-3.6 0-7.2-1.4-10.4-4.2z"
       fill="${G.cloth}"/>
-    <circle cx="12.6" cy="11.6" r="3.1" fill="${G.blueDeep}"/>
+    <circle cx="12.6" cy="11.6" r="3.1" fill="${G.tealDeep}"/>
     <circle cx="12.6" cy="11.6" r="1.3" fill="${G.dark}"/>
     <path d="M2.6 8.2C6 5 9.6 3.6 13 3.6c3.6 0 6.6 1.6 9 4.4" stroke="${G.gold}" stroke-width="1.9" fill="none"
       stroke-linecap="round"/>

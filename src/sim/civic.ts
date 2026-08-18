@@ -4,8 +4,9 @@
 // sprawl of houses reads as one city rather than scattered huts.
 //
 // A young settlement only wears its streets into the dirt. Stone paving is the
-// mark of a Town: on reaching that level the whole network is paved over at
-// once, in the same style as the plaza around the town center.
+// mark of a Town — of a Village, if you are Rome: on reaching that level the
+// whole network is paved over at once, in the same style as the plaza around
+// the town center.
 //
 // None of this is a building. Civic scenery never claims a grid cell, costs
 // nothing and is never selected or demolished: laying a real foundation over
@@ -45,13 +46,15 @@ const ROAD_BLOCKED_MAX = 0.34;
 const MIN_GROUND_Y = -0.1;
 
 /** Neither anchors a street nor earns ornaments: fields and fortifications. */
-const NO_CIVIC = new Set<BuildingTypeId>(['wall', 'farm']);
+const NO_CIVIC = new Set<BuildingTypeId>(['wall', 'farm', 'obelisk']);
 /** The heart of a settlement — every new work reaches for the nearest one. */
-const HUBS = new Set<BuildingTypeId>(['towncenter', 'storehouse', 'market', 'forum']);
+const HUBS = new Set<BuildingTypeId>([
+  'towncenter', 'acropolis', 'storehouse', 'market', 'forum', 'castrum'
+]);
 
 /** What a settlement of this level surfaces its streets with. */
-function streetKind(level: number): CivicKind {
-  return level >= PAVED_ROAD_LEVEL ? 'road' : 'path';
+function streetKind(level: number, faction: Faction): CivicKind {
+  return level >= PAVED_ROAD_LEVEL[faction] ? 'road' : 'path';
 }
 
 /** Which ornaments a settlement of this level knows how to raise. */
@@ -86,7 +89,8 @@ export function planCivic(world: World, b: Building) {
  */
 export function civicLevelUp(world: World, owner: number) {
   seedCivic(world);
-  if (world.players[owner].level >= PAVED_ROAD_LEVEL) paveOverPaths(world, owner);
+  const p = world.players[owner];
+  if (p.level >= PAVED_ROAD_LEVEL[p.faction]) paveOverPaths(world, owner);
   for (const b of world.buildings.values()) {
     if (b.owner !== owner || !b.built || NO_CIVIC.has(b.type)) continue;
     dressBuilding(world, b);
@@ -175,7 +179,7 @@ function pave(world: World, a: Building, b: Building) {
   if (considered === 0 || blocked / considered > ROAD_BLOCKED_MAX) return;
   const player = world.players[a.owner];
   const faction = player.faction;
-  const kind = streetKind(player.level);
+  const kind = streetKind(player.level, faction);
   for (const i of open) {
     const cx = i % MAP_W, cz = (i / MAP_W) | 0;
     addProp(world, {

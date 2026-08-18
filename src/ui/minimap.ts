@@ -98,9 +98,11 @@ export class Minimap {
     if (tp && exp[Math.floor(tp.z) * MAP_W + Math.floor(tp.x)]) {
       diamond(tp.x, tp.z, 2.6, '#f0c05a');
     }
-    // encounter sites still worth a march: smaller gold diamonds
+    // encounter sites still worth a march: smaller gold diamonds.
+    // Egypt's cartographers have the lot of them down before anyone walks there.
+    const charted = w.players[0].techs.has('cartography');
     for (const site of w.sites) {
-      if (!site.discovered || site.state === 'cleared') continue;
+      if ((!site.discovered && !charted) || site.state === 'cleared') continue;
       if (site.kind === 'outpost') {
         // a fort is a hold, not an errand: square, and coloured by who has it
         const fill = site.holder === 0 ? '#7fe89a' : site.holder === 1 ? '#f06a55' : '#cfc3a4';

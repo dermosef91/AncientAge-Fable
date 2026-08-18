@@ -57,8 +57,12 @@ export const MAX_LEVEL = SETTLEMENTS.length - 1;
 /**
  * Below this level a settlement only wears its streets into the dirt; on
  * reaching it the whole network is paved in the faction's stone (see civic.ts).
+ * Rome lays stone a whole level early — the road is how that empire is built,
+ * and it is the one faction bonus you can see from across the map.
  */
-export const PAVED_ROAD_LEVEL = 3;   // Town
+export const PAVED_ROAD_LEVEL: Record<Faction, number> = {
+  egypt: 3, greece: 3, rome: 2   // Town, Town, Village
+};
 
 /** Flat damage added when an attack lands on a target of this class. */
 export type BonusTable = Partial<Record<ArmorClass, number>>;
@@ -226,6 +230,10 @@ export interface BuildingDef {
   dropoff?: boolean;
   trains?: UnitTypeId[];
   attack?: { dmg: number; range: number; cooldown: number };
+  /** How far this building lifts the fog. Absent = the common 7.5. */
+  vision?: number;
+  /** Only these civilizations may raise it. Absent = everyone. */
+  civs?: Faction[];
   needsShore?: boolean;
   farm?: boolean;
   /** Units may walk over the footprint (plazas). */
@@ -242,7 +250,8 @@ export interface BuildingDef {
 export const BUILDINGS: Record<BuildingTypeId, BuildingDef> = {
   towncenter: {
     name: 'Town Center', cost: { wood: 220, stone: 180 }, hp: 1800, size: 4, buildTime: 70,
-    armor: 2, pop: 5, dropoff: true, trains: ['villager'], level: 3,
+    armor: 2, pop: 5, dropoff: true, trains: ['villager'], vision: 9,
+    upgradesTo: 'acropolis', level: 3,
     desc: 'Heart of your settlement. Trains villagers and stores goods.'
   },
   house: {
@@ -272,7 +281,7 @@ export const BUILDINGS: Record<BuildingTypeId, BuildingDef> = {
   },
   tower: {
     name: 'Watch Tower', cost: { wood: 50, stone: 80 }, hp: 550, size: 2, buildTime: 22,
-    armor: 2, attack: { dmg: 7, range: 8.5, cooldown: 2.1 }, level: 3,
+    armor: 2, attack: { dmg: 7, range: 8.5, cooldown: 2.1 }, vision: 11, level: 3,
     desc: 'Shoots arrows at nearby enemies. Stone shrugs off blades — but not boulders.'
   },
   wall: {
@@ -327,13 +336,31 @@ export const BUILDINGS: Record<BuildingTypeId, BuildingDef> = {
   },
   lighthouse: {
     name: 'Lighthouse', cost: { stone: 120, wood: 60 }, hp: 700, size: 2, buildTime: 32,
-    needsShore: true, armor: 2, level: 4,
+    needsShore: true, armor: 2, vision: 14, level: 4,
     desc: 'Guides your boats: they gather 30% faster and sail 20% faster.'
   },
   forum: {
     name: 'Forum', cost: { wood: 140, gold: 60 }, hp: 650, size: 3, buildTime: 30,
     armor: 1, level: 3,
     desc: 'Civic administration. Unlocks the labor pool: idle villagers are put to work automatically.'
+  },
+  // ---- civilization uniques: one each, and the home of that civ's own techs ----
+  obelisk: {
+    name: 'Obelisk', cost: { stone: 45 }, hp: 240, size: 1, buildTime: 14,
+    armor: 2, vision: 20, civs: ['egypt'], level: 1,
+    desc: 'A finger of stone that watches the country around it. Egypt sees what others must scout for.'
+  },
+  acropolis: {
+    name: 'Acropolis', cost: { stone: 160, gold: 70 }, hp: 3000, size: 4, buildTime: 55,
+    armor: 3, pop: 5, dropoff: true, trains: ['villager'],
+    attack: { dmg: 9, range: 9, cooldown: 2.0 }, vision: 13, civs: ['greece'], level: 3,
+    desc: 'The high city: a town center walled, manned and shooting. Greece holds what Greece takes.'
+  },
+  castrum: {
+    name: 'Castrum', cost: { wood: 120, stone: 90 }, hp: 900, size: 3, buildTime: 30,
+    armor: 2, dropoff: true, trains: ['spearman', 'legionary'],
+    heal: { rate: 0.6, range: 8 }, vision: 12, civs: ['rome'], level: 3,
+    desc: 'A marching camp raised at the front: musters troops, tends their wounds and takes their goods.'
   },
   wonder: {
     name: 'Wonder', cost: { wood: 300, stone: 350, gold: 300 }, hp: 3000, size: 4, buildTime: 150,
@@ -359,7 +386,7 @@ export const BUILDINGS: Record<BuildingTypeId, BuildingDef> = {
   },
   outpost: {
     name: 'Ruined Fort', cost: {}, hp: 900, size: 3, buildTime: 1, armor: 2,
-    dropoff: true, level: 0,
+    dropoff: true, vision: 17, level: 0,
     desc: 'A derelict of some older war. Stand in it to claim it — it watches the country around and takes your goods.'
   }
 };
@@ -375,9 +402,21 @@ export const BUILD_MENU: BuildingTypeId[] = [
   'dock', 'market', 'shrine',
   'academy', 'tower', 'wall',
   'lighthouse', 'amphitheater', 'forum',
-  'monument'
+  'obelisk', 'castrum', 'monument'
 ];
 export const BUILD_MENU_WIDE: BuildingTypeId[] = ['towncenter', 'wonder'];
+
+/**
+ * Every type that counts as the heart of a settlement. Greece's Acropolis is a
+ * town center that has been walled and manned, so conquest, drop-off, refugees,
+ * the Idol and settlement growth must all keep seeing it as one.
+ */
+export const TOWN_CENTERS: ReadonlySet<BuildingTypeId> =
+  new Set<BuildingTypeId>(['towncenter', 'acropolis']);
+
+export function isTownCenter(type: BuildingTypeId): boolean {
+  return TOWN_CENTERS.has(type);
+}
 
 export interface TechDef {
   id: string;
@@ -388,6 +427,8 @@ export interface TechDef {
   at: BuildingTypeId;
   /** Settlement level required to research. */
   level: number;
+  /** Only these civilizations may research it. Absent = everyone. */
+  civs?: Faction[];
   desc: string;
 }
 
@@ -406,11 +447,13 @@ export const TECHS: Record<string, TechDef> = {
   },
   shields: {
     id: 'shields', name: 'Hardened Shields', icon: 'shields', cost: { food: 100, gold: 70 }, time: 32,
-    at: 'barracks', level: 5, desc: 'All military gain +1 armor and +15% hit points.'
+    at: 'barracks', level: 5, civs: ['greece', 'rome'],
+    desc: 'All military gain +1 armor and +15% hit points.'
   },
   irrigation: {
     id: 'irrigation', name: 'Irrigation', icon: 'irrigation', cost: { wood: 100, food: 60 }, time: 30,
-    at: 'academy', level: 3, desc: 'Farms yield food 25% faster.'
+    at: 'academy', level: 3, civs: ['egypt', 'greece'],
+    desc: 'Farms yield food 25% faster.'
   },
   medicine: {
     id: 'medicine', name: 'Medicine', icon: 'medicine', cost: { food: 80, gold: 60 }, time: 28,
@@ -422,9 +465,55 @@ export const TECHS: Record<string, TechDef> = {
   },
   logistics: {
     id: 'logistics', name: 'Logistics', icon: 'logistics', cost: { food: 100, gold: 90 }, time: 34,
-    at: 'academy', level: 4, desc: 'All buildings train units 15% faster.'
+    at: 'academy', level: 4, civs: ['egypt', 'rome'],
+    desc: 'All buildings train units 15% faster.'
+  },
+  // ---- civilization uniques, each researched at that civ's own building ----
+  nileflood: {
+    id: 'nileflood', name: 'Nile Flood', icon: 'irrigation', cost: { wood: 90, food: 70 }, time: 30,
+    at: 'obelisk', level: 2, civs: ['egypt'],
+    desc: 'Farms reseed themselves free of charge, and never wither.'
+  },
+  cartography: {
+    id: 'cartography', name: 'Cartography', icon: 'cartography', cost: { gold: 110, stone: 50 }, time: 32,
+    at: 'obelisk', level: 3, civs: ['egypt'],
+    desc: 'Obelisks see 60% further, and every site in the wilds is marked on your map.'
+  },
+  phalanx: {
+    id: 'phalanx', name: 'Phalanx Drill', icon: 'phalanx', cost: { food: 130, gold: 80 }, time: 34,
+    at: 'acropolis', level: 3, civs: ['greece'],
+    desc: 'Hoplites who stand together — two or more within three paces — gain +2 melee armor.'
+  },
+  marble: {
+    id: 'marble', name: 'Marble Quarry', icon: 'masonry', cost: { wood: 80, stone: 60 }, time: 32,
+    at: 'acropolis', level: 4, civs: ['greece'],
+    desc: 'Stone is gathered 25% faster, and every building needs 15% less of it.'
+  },
+  roads: {
+    id: 'roads', name: 'Roads', icon: 'roads', cost: { stone: 90, gold: 70 }, time: 32,
+    at: 'castrum', level: 3, civs: ['rome'],
+    desc: 'Your units march 20% faster within eight paces of your own buildings.'
+  },
+  standard: {
+    id: 'standard', name: 'Legion Standard', icon: 'standard', cost: { food: 120, gold: 90 }, time: 34,
+    at: 'castrum', level: 4, civs: ['rome'],
+    desc: 'Legionaries gain +1 armor for each legionary shoulder to shoulder, up to +3.'
   }
 };
+
+/** A tech or building may be restricted to some civilizations; absent = all. */
+export function availableTo(def: { civs?: Faction[] }, faction: Faction): boolean {
+  return !def.civs || def.civs.includes(faction);
+}
+
+/**
+ * The one civilization a thing belongs to, if it belongs to exactly one.
+ * `civs` does double duty — it marks a civ's own works *and* the gaps in
+ * another's roster — and only the first of those is worth boasting about.
+ */
+export function uniqueTo(def: { civs?: Faction[] }): Faction | null {
+  return def.civs && def.civs.length === 1 ? def.civs[0] : null;
+}
 
 export interface FactionDef {
   id: Faction;
@@ -436,6 +525,8 @@ export interface FactionDef {
   uiColor: string;    // menu highlight colour
   elite: UnitTypeId;
   eliteAt: BuildingTypeId;
+  /** This civilization's own building — and the only place its own techs are researched. */
+  unique: BuildingTypeId;
   passive: string;
   passiveShort: string;
   bonus: {
@@ -451,26 +542,29 @@ export interface FactionDef {
 export const FACTIONS: Record<Faction, FactionDef> = {
   egypt: {
     id: 'egypt', name: 'Egypt', title: 'Gift of the Nile',
-    color: 0xd8bd8d, accent: 0x2a56c6, accentCss: '#3868e0', uiColor: '#4fd6c1',
-    elite: 'chariot', eliteAt: 'range',
-    passive: 'Food is gathered 25% faster and farms cost 25% less. Fields of plenty feed great armies.',
-    passiveShort: '+25% food gathering, cheaper farms',
+    color: 0xd8bd8d, accent: 0x17a68e, accentCss: '#1fb39a', uiColor: '#4fd6c1',
+    elite: 'chariot', eliteAt: 'range', unique: 'obelisk',
+    passive: 'Food is gathered 25% faster and farms cost 25% less. Raises Obelisks that watch the '
+      + 'country for miles — but never learns to harden a shield.',
+    passiveShort: '+25% food gathering, cheaper farms, Obelisks',
     bonus: { foodRateMul: 1.25, farmCostMul: 0.75 }
   },
   greece: {
     id: 'greece', name: 'Greece', title: 'Phalanx and Marble',
     color: 0xefe9d8, accent: 0x2f6fd0, accentCss: '#3f7fe0', uiColor: '#5b9df5',
-    elite: 'hoplite', eliteAt: 'barracks',
-    passive: 'Military units have +15% hit points and towers and walls are 25% sturdier. Hold the line.',
-    passiveShort: '+15% unit HP, sturdier defenses',
+    elite: 'hoplite', eliteAt: 'barracks', unique: 'acropolis',
+    passive: 'Military units have +15% hit points and towers and walls are 25% sturdier. Raises the '
+      + 'Acropolis from a town center — but musters too slowly to learn Logistics.',
+    passiveShort: '+15% unit HP, sturdier defenses, the Acropolis',
     bonus: { unitHpMul: 1.15, towerWallHpMul: 1.25 }
   },
   rome: {
     id: 'rome', name: 'Rome', title: 'Marching Eagles',
     color: 0xe7d9c0, accent: 0xb03a2e, accentCss: '#d04a3a', uiColor: '#e0604e',
-    elite: 'legionary', eliteAt: 'barracks',
-    passive: 'Buildings go up 35% faster and cost 10% less. An empire is built road by road.',
-    passiveShort: '35% faster, cheaper construction',
+    elite: 'legionary', eliteAt: 'barracks', unique: 'castrum',
+    passive: 'Buildings go up 35% faster and cost 10% less, and the streets are paved a level early. '
+      + 'Raises the Castrum at the front — but has no use for Irrigation.',
+    passiveShort: '35% faster construction, early paving, the Castrum',
     bonus: { buildRateMul: 1.35, buildingCostMul: 0.9 }
   }
 };
@@ -523,9 +617,7 @@ export const ENC = {
   // the Golden Idol
   relicPickupR: 1.7, relicDepositR: 1.8, idolGoldRate: 0.5,
   // ruined forts: contested all match, never spent
-  outpostSites: 2, captureR: 4.5, captureTime: 14, captureDecay: 0.35,
-  /** How far a held fort sees. Wide enough to be worth holding. */
-  outpostVision: 17
+  outpostSites: 2, captureR: 4.5, captureTime: 14, captureDecay: 0.35
 };
 
 // ---------------------------------------------------------------- trade

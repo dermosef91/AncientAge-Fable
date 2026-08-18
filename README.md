@@ -46,9 +46,9 @@ of the game.
 | Level | Cost | Unlocks |
 | --- | --- | --- |
 | I — Camp | — | House, Farm, Storehouse, Dock, Villagers, Fishing Boats |
-| II — Hamlet | 100 food | Barracks, Wall, Spearman, civic gardens |
-| III — Village | 190 food, 80 wood | Archery Range, Market, Shrine, Archer, Trade Cart, The Wheel, civic plazas |
-| IV — Town | 300 food, 100 gold | Elite unit, **Siege Workshop**, Watch Tower, Academy, Forum, extra Town Centers, Masonry, Bronze Arms, Irrigation, Medicine |
+| II — Hamlet | 100 food | Barracks, Wall, Spearman, civic gardens, **the Obelisk** |
+| III — Village | 190 food, 80 wood | Archery Range, Market, Shrine, Archer, Trade Cart, The Wheel, civic plazas *(Rome paves here)* |
+| IV — Town | 300 food, 100 gold | Elite unit, **Siege Workshop**, Watch Tower, Academy, Forum, extra Town Centers, Masonry, Bronze Arms, Irrigation, Medicine, **the Acropolis and the Castrum** |
 | V — City | 460 food, 190 gold, 100 stone | Temple, Amphitheater, Lighthouse, Monument, Coinage, Logistics |
 | VI — Metropolis | 650 food, 320 gold, 200 stone | **The Wonder**, Hardened Shields |
 
@@ -112,10 +112,12 @@ you could once ignore now needs an answer.
   street, so a sprawl of houses reads as one city; and the larger works gather
   gardens, plazas and statues in the spare ground around them as your
   settlement grows (gardens from Hamlet, plazas from Village, statues from
-  Town). A camp, hamlet or village only wears its streets into the dirt —
-  reaching **Town** paves the whole network at once, in the same stone as the
-  plaza around your town center. It is all scenery: nothing blocks a path, and
-  laying a foundation over a garden simply sweeps it away.
+  Town). A young settlement only wears its streets into the dirt — reaching
+  **Town** paves the whole network at once, in the same stone as the plaza
+  around your town center. Rome does it a level early, at **Village**, which is
+  the one civilization bonus you can read from across the map. It is all
+  scenery: nothing blocks a path, and laying a foundation over a garden simply
+  sweeps it away.
 - **Wonder** *(Metropolis)* — complete it and defend it for three minutes to win
   without razing a single town center. The enemy will come with everything.
 
@@ -124,7 +126,10 @@ then confirm with **Build** (walls still place instantly, tap-tap-tap).
 
 Tap the **settlement chip** in the top right to open **the tech tree** — all
 six levels side by side with what each unlocks, what everything costs, and what
-you have already researched. Worth a look before paying for the next level.
+you have already researched. It is your civilization's tree, not a generic one:
+another civ's uniques never appear, the technologies your people never learn are
+simply absent, and your own are marked as yours. Worth a look before paying for
+the next level.
 
 ### The wilds
 
@@ -182,17 +187,49 @@ camera (toggleable in the pause menu).
 
 ## The civilizations
 
+Each civilization has a passive, a unique unit, a **unique building**, and
+**two technologies nobody else can learn** — researched at that building, so
+raising it is what opens your own branch of the tree. Each also *lacks* one
+technology every other civilization has: the roster gaps are as much a part of
+the identity as the uniques.
+
 - **Egypt — Gift of the Nile**: food gathered 25% faster, farms 25% cheaper.
   Unique unit: **War Chariot**, a fast chariot archer from the Archery Range.
+  Unique building: the **Obelisk** (Hamlet) — a cheap 1×1 shaft of stone that
+  watches 20 tiles of country. Seed them along the roads and you always know
+  where the attack is coming from. Its techs are **Nile Flood** (farms reseed
+  free and never wither) and **Cartography** (obelisks see 60% further, and
+  every site in the wilds is marked on your map). Egypt never learns
+  **Hardened Shields** — it fights light, or not at all.
 - **Greece — Phalanx and Marble**: military +15% HP, towers and walls 25%
   sturdier. Unique unit: **Hoplite**, armored heavy infantry.
-- **Rome — Marching Eagles**: buildings 35% faster and 10% cheaper to build.
-  Unique unit: **Legionary**, disciplined all-round infantry.
+  Unique building: the **Acropolis** (Town) — not built but *raised*, an
+  in-place upgrade of a Town Center into a walled one with bastions and a
+  tower's bite. It is still a town center in every way that counts. Its techs
+  are **Phalanx Drill** (hoplites standing two or more together gain +2 melee
+  armor — shields, so arrows still come over the top) and **Marble Quarry**
+  (stone gathers 25% faster and every building needs 15% less of it). Greece
+  never learns **Logistics**: an elite army is slow to replace.
+- **Rome — Marching Eagles**: buildings 35% faster and 10% cheaper to build,
+  and the streets are paved a whole level early — at Village, while everyone
+  else waits for Town. Unique unit: **Legionary**, disciplined all-round
+  infantry. Unique building: the **Castrum** (Town) — a marching camp for the
+  front line that musters spearmen and legionaries, heals the wounded slowly,
+  and takes your gatherers' goods. Its techs are **Roads** (units march 20%
+  faster within eight paces of your own buildings) and **Legion Standard**
+  (legionaries gain +1 armor for each legionary beside them, up to +3). Rome
+  never learns **Irrigation** — it feeds on conquest and trade, not on farming.
 
 Each civilization also starts in its own landscape: Egypt among date palms,
 sandstone rocks and a sandstone forecourt; Greece among cypress and olive
 groves on a limestone plaza; Rome amid umbrella pines with paved roads
-radiating from the villa.
+radiating from the villa. Their town centers differ at **every** settlement
+level, starting from the camp: Egypt pitches an open linen shade pavilion on
+carved poles behind reed windbreaks, Greece a great ridge tent with a tripod
+cauldron at the fire, Rome an ordered military camp behind a staked palisade
+with the vexillum at the gate. Egypt's mudbrick compound never grows a gable;
+Greece's timber hall is a temple front in waiting; Rome's plastered principia
+already has the villa's wings.
 
 ## Tech notes
 
