@@ -1058,6 +1058,14 @@ export class GameView {
         this.flags.add(b.id, b.x - 1.75, y, b.z + 1.75, accent, 1.15);
         this.flags.add(b.id, b.x + 1.75, y, b.z + 1.75, accent, 1.15);
         break;
+      case 'acropolis':
+        // Flown from the bastion tops, where the wall can actually be seen from.
+        this.flags.add(b.id, b.x - 1.5, y + 2.3, b.z + 1.5, accent, 0.8);
+        this.flags.add(b.id, b.x + 1.5, y + 2.3, b.z + 1.5, accent, 0.8);
+        break;
+      case 'castrum':
+        this.flags.add(b.id, b.x, y + 1.35, b.z + 1.32, accent, 0.7);
+        break;
       case 'barracks':
         this.flags.add(b.id, b.x + 1.15, y, b.z + 1.15, accent, 0.9);
         break;
@@ -1364,6 +1372,5 @@ export class GameView {
 }
 
 function accentOf(w: World, owner: number): number {
-  const f = w.players[owner].faction;
-  return f === 'egypt' ? 0x2a56c6 : f === 'greece' ? 0x2f6fd0 : 0xb03a2e;
+  return FACTIONS[w.players[owner].faction].accent;
 }

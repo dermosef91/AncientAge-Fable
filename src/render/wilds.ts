@@ -386,7 +386,7 @@ export function wildsBuilding(p: Parts, type: string): boolean {
     case 'outpost': outpost(p); return true;
     case 'hut': hut(p); return true;
     case 'beacon': beacon(p); return true;
-    case 'obelisk': obelisk(p); return true;
+    case 'menhir': obelisk(p); return true;   // the Obelisk of the Lost
     case 'spring': spring(p); return true;
   }
   return false;

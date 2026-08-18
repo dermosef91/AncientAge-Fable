@@ -169,13 +169,16 @@ function updateBuildings(world: World, dt: number) {
             world.emit({ t: 'toast', owner: 0, msg: `Your settlement grows into a ${SETTLEMENTS[p.level].name}`, kind: 'good' });
           }
         } else if (q.kind === 'upgrade' && q.to) {
-          // in-place transformation (shrine -> temple)
+          // in-place transformation (shrine -> temple, town center -> acropolis)
           world.noteBuilt(b.owner, b.type, -1);
           const frac = b.hp / b.maxHp;
           b.type = q.to;
           b.maxHp = world.buildingHp(b.owner, q.to);
           b.hp = Math.round(b.maxHp * Math.max(frac, 0.6));
           world.noteBuilt(b.owner, b.type, 1);
+          // The new building may house a different number of people than the
+          // old; recomputeAdjacency re-derives the whole cap, so the difference
+          // needs no bookkeeping of its own.
           recomputeAdjacency(world, b.owner);
           world.emit({ t: 'upgrade', id: b.id, owner: b.owner, bType: q.to, x: b.x, z: b.z });
           if (b.owner === 0) {
@@ -212,10 +215,11 @@ function updateBuildings(world: World, dt: number) {
       world.players[b.owner].res.gold += 0.45 * dt * (p.techs.has('coinage') ? 1.5 : 1);
     }
 
-    // Farm reseeding
+    // Farm reseeding. Egypt's flood does the sowing itself, for nothing.
     if (def.farm && b.farmFood <= 0) {
-      if (p.res.wood >= FARM_RESEED_COST) {
-        p.res.wood -= FARM_RESEED_COST;
+      const flood = p.techs.has('nileflood');
+      if (flood || p.res.wood >= FARM_RESEED_COST) {
+        if (!flood) p.res.wood -= FARM_RESEED_COST;
         b.farmFood = FARM_FOOD;
         if (b.withered) { b.withered = false; }
         world.emit({ t: 'farmReseed', owner: b.owner, id: b.id });
@@ -265,13 +269,33 @@ function applyResearch(world: World, owner: number, techId: string) {
   }
 }
 
+/** Rome's Roads: how far from your own stones a unit still marches on them. */
+const ROAD_RANGE = 8;
+const ROAD_SPEED_MUL = 1.2;
+/** Ticks between aura samples. Staggered by unit id so the cost stays spread. */
+const AURA_SAMPLE = 5;
+
+/**
+ * Ground effects are a positional question, and asking it every tick for every
+ * unit would cost more than it is worth — so each unit re-checks on its own
+ * beat and carries the answer until the next one.
+ */
+function refreshSpeedAura(world: World, u: Unit) {
+  if ((world.tick + u.id) % AURA_SAMPLE !== 0) return;
+  if (u.water || !world.players[u.owner].techs.has('roads')) { u.speedAura = 1; return; }
+  u.speedAura = world.ownBuildingNear(u.owner, u.x, u.z, ROAD_RANGE) ? ROAD_SPEED_MUL : 1;
+}
+
 // ---------------------------------------------------------------- units
 function updateUnit(world: World, u: Unit, dt: number) {
   u.cooldown = Math.max(0, u.cooldown - dt);
   u.attackAnimT += dt;
   u.scanT -= dt;
   const stats = world.unitStats(u.owner, u.type);
-  // A scout who has been out in the country moves like someone who knows it.
+  // Rome's roads under the feet, and — for a scout — a season spent learning
+  // the country. Both scale the same number and stack.
+  refreshSpeedAura(world, u);
+  stats.speed *= u.speedAura;
   if (u.rank) stats.speed *= 1 + u.rank * SCOUT.speedPerRank;
 
   switch (u.task.type) {
@@ -863,6 +887,40 @@ function bonusVs(src: UnitTypeId | null, cls: ArmorClass): number {
   return src ? (UNITS[src].bonus?.[cls] ?? 0) : 0;
 }
 
+/** Scratch for the close-order scans below — never the shared `tmpUnits`. */
+const tmpRanks: Unit[] = [];
+
+/** Phalanx Drill: within this, a hoplite counts as standing in the line. */
+const PHALANX_RANGE = 3;
+const PHALANX_ARMOR = 2;
+/** ...and Legion Standard, which wants the men closer still. */
+const STANDARD_RANGE = 2;
+const STANDARD_ARMOR_MAX = 3;
+
+/**
+ * Armor a unit owes to the men beside it. Both are close-order drills: they
+ * pay only while the formation holds, so a broken line is a soft one.
+ * Greece's shield wall turns blades alone; Rome's standard turns everything.
+ */
+function closeOrderArmor(world: World, target: Unit, pierce: boolean): number {
+  const type = target.type;
+  if (type !== 'hoplite' && type !== 'legionary') return 0;
+  const p = world.players[target.owner];
+  const phalanx = type === 'hoplite' && p.techs.has('phalanx');
+  const standard = type === 'legionary' && p.techs.has('standard');
+  if (!phalanx && !standard) return 0;
+  // A phalanx presents shields, not armor: arrows come over the top regardless.
+  if (phalanx && pierce) return 0;
+  const range = phalanx ? PHALANX_RANGE : STANDARD_RANGE;
+  world.unitsNear(target.x, target.z, range, tmpRanks);
+  let mates = 0;
+  for (const o of tmpRanks) {
+    if (o.id !== target.id && o.owner === target.owner && o.type === type) mates++;
+  }
+  if (phalanx) return mates >= 2 ? PHALANX_ARMOR : 0;
+  return Math.min(STANDARD_ARMOR_MAX, mates);
+}
+
 /**
  * Resolve one hit against a unit: the attacker's flat counter bonus for that
  * unit's class, less whichever armor channel the damage type reads. A hit
@@ -870,7 +928,8 @@ function bonusVs(src: UnitTypeId | null, cls: ArmorClass): number {
  */
 function damageToUnit(world: World, src: UnitTypeId | null, rawDmg: number, target: Unit): number {
   const s = world.unitStats(target.owner, target.type);
-  const armor = dmgTypeOf(src) === 'pierce' ? s.pierceArmor : s.meleeArmor;
+  const pierce = dmgTypeOf(src) === 'pierce';
+  const armor = (pierce ? s.pierceArmor : s.meleeArmor) + closeOrderArmor(world, target, pierce);
   return Math.max(1, rawDmg + bonusVs(src, UNITS[target.type].armorClass) - armor);
 }
 
@@ -1083,9 +1142,9 @@ function updateFog(world: World) {
     world.markExplored(u.x, u.z, base + (u.rank ?? 0) * SCOUT.visionPerRank + beacon);
   }
   for (const b of world.buildings.values()) {
-    if (b.owner !== 0) continue;
-    world.markExplored(b.x, b.z,
-      b.type === 'outpost' ? ENC.outpostVision :
-      b.type === 'tower' ? 11 : b.type === 'lighthouse' ? 14 : 7.5);
+    // A foundation sees nothing: an unbuilt Obelisk would otherwise be a
+    // 45-stone map reveal that never needs a villager to walk to it.
+    if (b.owner !== 0 || !b.built) continue;
+    world.markExplored(b.x, b.z, world.buildingVision(0, b.type));
   }
 }

@@ -7,10 +7,11 @@ value references), **Proposal** (the design, with numbers), **Implementation**
 (how much it changes the feel of a match) and **Effort** (S / M / L).
 
 > **Shipped so far:** #1 (damage classes and counters), #3 (siege units and the
-> Siege Workshop), #19 (capturable neutral structures), part of #25 (the tech
-> tree screen) and part of #29 (building collapse, dust and decals). Those
-> entries are kept as written, with a note on what actually landed and how it
-> differs from the proposal.
+> Siege Workshop), #12 (a unique building per civ), #13 (faction-unique
+> technologies, plus roster gaps), #19 (capturable neutral structures), part of
+> #25 (the tech tree screen) and part of #29 (building collapse, dust and
+> decals). Those entries are kept as written, with a note on what actually
+> landed and how it differs from the proposal.
 >
 > **Note on naming:** the proposals below were written against the old
 > four-age progression. Ages have since become six **settlement levels**
@@ -414,7 +415,45 @@ routes to near-invisible unless the Market is selected.
 
 ## C. Faction design
 
-### 12. Give each civ a unique building
+### 12. Give each civ a unique building — ✅ **shipped**
+
+> **What landed.** All three, close to the proposal. **Egypt's Obelisk**
+> (45 stone, 1×1, Hamlet) is a permanent vision beacon at radius 20 — nearly
+> twice a Watch Tower's 11 — and it needed a real generalization to get there:
+> `BuildingDef` gained a `vision` field, `updateFog` now calls a new
+> `World.buildingVision(owner, type)` instead of the hardcoded per-type ternary
+> it had, and `ENC.outpostVision` was deleted in favour of the fort's own
+> `vision: 17` so there is one source of truth. **Greece's Acropolis** (160
+> stone, 70 gold, Town) is an in-place upgrade of a Town Center via the existing
+> `upgradesTo` mechanism, at 3000 HP with 3 armor and a built-in tower attack.
+> **Rome's Castrum** (120 wood, 90 stone, Town) musters spearmen *and*
+> legionaries, heals slowly, and is a forward drop-off.
+>
+> The Acropolis was the whole risk of this entry, and it is worth writing down
+> why: a town center is special-cased in sixteen places, six of them
+> load-bearing for the win condition. A `TOWN_CENTERS` set and an
+> `isTownCenter()` predicate now cover conquest counting, the defeat trigger,
+> `tcPos` refresh, drop-off, refugee settling, Golden Idol enshrining,
+> settlement level-up (sim *and* HUD), the AI's anchor/targeting/production
+> filters, civic hubs and the debug hooks. Everything else turned out to be
+> data-driven and needed nothing — the Acropolis trains villagers and takes
+> deposits because its `BuildingDef` says so, and it shoots because
+> `updateBuildings` keys off `def.attack`.
+>
+> Two adjacent bugs were fixed on the way. `World.researchedAt` lets town-center
+> technologies still be studied at an Acropolis, but **one-directionally**, or
+> Greece could learn Phalanx Drill without ever upgrading. And `demolish()`
+> declared instant defeat on pulling down *any* town center without counting the
+> rest — harmless when there was one type and one of it, wrong the moment a
+> settlement can hold several. It now routes through `checkTownCenters` like a
+> razed one does.
+>
+> Gating is by a new optional `civs?: Faction[]` on `BuildingDef`/`TechDef` with
+> an `availableTo()` helper, enforced in `canPlace` (so the AI and the placement
+> ghost get it for free) and in `startUpgrade`, and filtered in the build menu
+> and the tech tree screen. A second helper, `uniqueTo()`, exists because `civs`
+> does double duty — it marks a civ's own works *and* the gaps in another's
+> roster (see #13) — and only a single-civ list should be labelled "unique to".
 
 **Today.** `FACTIONS` (`src/core/config.ts:349`) defines identity as one unique
 unit plus a `bonus` object of at most three multipliers. Egypt is +25% food and
@@ -454,7 +493,51 @@ distinct mechanically — ship it first as a proof.
 
 **Impact** High · **Effort** L
 
-### 13. Faction-unique technologies
+### 13. Faction-unique technologies — ✅ **shipped**
+
+> **What landed.** Two exclusive technologies per civ, each researched at that
+> civ's unique building from #12, so the two entries carry each other exactly as
+> proposed. Egypt: **Nile Flood** (farms reseed free and never wither — the
+> wither branch becomes unreachable) and **Cartography** (obelisk vision ×1.6,
+> and every encounter site drawn on the minimap). Greece: **Phalanx Drill** and
+> **Marble Quarry** (stone gathers +25%, and the stone *component* of every
+> building price falls 15%, which meant making `buildingCost` per-resource
+> rather than one flat multiplier). Rome: **Roads** and **Legion Standard**.
+>
+> The two close-order technologies are the interesting ones. Both hang off a
+> single `closeOrderArmor()` at the `damageToUnit` choke point, and they are
+> deliberately *not* symmetrical: a phalanx presents shields, so Phalanx Drill
+> adds +2 melee armor only and arrows still come over the top, while the Legion
+> Standard's +1 per neighbour (capped +3) applies to both channels. Phalanx
+> needs two neighbours to pay out — a broken line is a soft one. Neither uses
+> the shared `tmpUnits` scratch array, which is live in callers up the stack.
+>
+> Roads is sampled, not computed per tick: `Unit.speedAura` refreshes on
+> `(world.tick + u.id) % 5`, staggered by id so the cost stays spread, and
+> `updateUnit` multiplies the fresh stats object by it. A new
+> `World.ownBuildingNear` does the query through the existing building hash.
+>
+> **The roster gaps landed with them, and are half the point.** Egypt cannot
+> learn Hardened Shields, Greece cannot learn Logistics, Rome cannot learn
+> Irrigation — same `civs?: Faction[]` field, used as an exclusion list. What a
+> civilization *lacks* turns out to do as much for its character as what it
+> owns, and it costs one array per entry.
+>
+> One thing the proposal asked for did **not** land: branching the shared tree
+> so `bronze` and `shields` become a choice. The tree is still a checklist for
+> the four common technologies.
+>
+> **A pre-existing bug this surfaced.** The AI researched *nothing*, ever — on
+> any difficulty, in any match. Its research block sat at the tail of
+> `construction()`, behind ten `if (place(...)) return;` branches, and a
+> functioning AI economy lays a foundation most seconds. Measured over a
+> 40-minute run it reached the block zero times. Research is now its own
+> `research()` step called from `step()`, and it only needs a *near*-idle
+> building (queue < 2) rather than a perfectly idle one, since a barracks that
+> is always training would otherwise never study anything. The AI also now
+> raises its civ's unique building and researches its own two technologies, so
+> faction identity shows up when you are *fighting* a civilization and not only
+> when you are playing it.
 
 **Today.** All eight techs in `TECHS` (`src/core/config.ts:292`) are available to
 every civ. It's a tech *list*, not a tech tree — no branching, no exclusivity, no
@@ -1110,10 +1193,14 @@ simulation already generates the data and the HUD throws it away. Then #7
 (specialist camps), which gives the enormous map an economic reason to exist;
 and #26 (save/resume), which stops phone sessions from ending badly.
 
-**Tier 2 — identity.** #12 and #13 together (unique buildings and techs) convert
-three stat-multiplier civs into three ways to play. #20 and #21 stop every match
-against the AI from unfolding identically. #5, #6 and #18 round out the combat
-and city feel.
+**Tier 2 — identity.** #12 and #13 are done: unique buildings, unique
+technologies and roster gaps have converted three stat-multiplier civs into
+three ways to play, and the AI now plays its own civilization rather than a
+generic one. What remains here is #20 and #21, to stop every match against the
+AI from unfolding identically, and #5, #6 and #18 to round out the combat and
+city feel. #6 (formations) is now worth more than it was: Phalanx Drill is
+written against units standing close together, and formations are what would
+let a player produce that on purpose rather than by accident.
 
 **Tier 3 — scope.** #15 (navy) makes a quarter of generated maps playable as
 designed. #14 (new civs) and #25 (tutorial) are what make the game feel finished

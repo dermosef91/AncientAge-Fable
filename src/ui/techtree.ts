@@ -4,8 +4,8 @@
 // Everything here is derived from the balance tables — nothing is hand-listed,
 // so a new building or unit shows up the moment it is added to config.ts.
 import {
-  BUILD_MENU, BUILD_MENU_WIDE, BUILDINGS, FACTIONS, RES_ORDER, SETTLEMENTS, TECHS, UNITS,
-  type Cost
+  availableTo, BUILD_MENU, BUILD_MENU_WIDE, BUILDINGS, FACTIONS, RES_ORDER, SETTLEMENTS, TECHS,
+  UNITS, uniqueTo, type Cost
 } from '../core/config';
 import type { BuildingTypeId, Faction, UnitTypeId } from '../core/types';
 import { buildingThumb, thumbImg, unitThumb } from '../render/thumbnails';
@@ -21,16 +21,17 @@ function costHtml(c: Cost): string {
 }
 
 /**
- * Every building the player can end up with, bucketed by the settlement level
- * that unlocks it. In-place upgrade targets (Shrine → Temple) never appear in
- * the build menu, but they are exactly the kind of thing this screen exists to
- * surface. The Wonder is left out — it gets its own Victory section.
+ * Every building this civilization can end up with, bucketed by the settlement
+ * level that unlocks it. In-place upgrade targets (Shrine → Temple) never
+ * appear in the build menu, but they are exactly the kind of thing this screen
+ * exists to surface — as are the civilization uniques, which is why the other
+ * civs' are filtered out. The Wonder gets its own Victory section.
  */
-function buildingsByLevel(): BuildingTypeId[][] {
+function buildingsByLevel(faction: Faction): BuildingTypeId[][] {
   const out: BuildingTypeId[][] = SETTLEMENTS.map(() => []);
   const seen = new Set<BuildingTypeId>();
   const push = (bt: BuildingTypeId) => {
-    if (seen.has(bt) || bt === 'wonder') return;
+    if (seen.has(bt) || bt === 'wonder' || !availableTo(BUILDINGS[bt], faction)) return;
     seen.add(bt);
     out[BUILDINGS[bt].level].push(bt);
   };
@@ -66,9 +67,11 @@ function unitsByLevel(faction: Faction): UnitTypeId[][] {
   return out;
 }
 
-function techsByLevel(): string[][] {
+function techsByLevel(faction: Faction): string[][] {
   const out: string[][] = SETTLEMENTS.map(() => []);
-  for (const id of Object.keys(TECHS)) out[TECHS[id].level].push(id);
+  for (const id of Object.keys(TECHS)) {
+    if (availableTo(TECHS[id], faction)) out[TECHS[id].level].push(id);
+  }
   return out;
 }
 
@@ -79,9 +82,9 @@ function techsByLevel(): string[][] {
 export function openTechTree(world: World, onClose: () => void): HTMLElement {
   const p = world.players[0];
   const faction = p.faction;
-  const byLevel = buildingsByLevel();
+  const byLevel = buildingsByLevel(faction);
   const unitsAt = unitsByLevel(faction);
-  const techsAt = techsByLevel();
+  const techsAt = techsByLevel(faction);
 
   const overlay = document.createElement('div');
   overlay.className = 'overlay techtree';
@@ -106,9 +109,14 @@ export function openTechTree(world: World, onClose: () => void): HTMLElement {
       body += `<h4>Buildings</h4>`;
       for (const bt of byLevel[a]) {
         const d = BUILDINGS[bt];
+        const notes: string[] = [];
+        const only = uniqueTo(d);
+        if (only) notes.push(`Unique to ${FACTIONS[only].name}`);
         const from = upgradeSource(bt);
+        if (from) notes.push(from);
+        notes.push(d.desc);
         body += row(thumbImg(buildingThumb(bt, faction, Math.max(a, p.level)), 'tt-thumb'),
-          d.name, costHtml(world.buildingCost(0, bt)), from ? `${from} — ${d.desc}` : d.desc, false);
+          d.name, costHtml(world.buildingCost(0, bt)), notes.join(' — '), false);
       }
     }
     if (unitsAt[a].length) {
@@ -124,8 +132,12 @@ export function openTechTree(world: World, onClose: () => void): HTMLElement {
       body += `<h4>Technologies</h4>`;
       for (const id of techsAt[a]) {
         const t = TECHS[id];
+        const only = uniqueTo(t);
+        const where = only
+          ? `known only to ${FACTIONS[only].name}, at the ${BUILDINGS[t.at].name}`
+          : `at the ${BUILDINGS[t.at].name}`;
         body += row(icon(t.icon, 26), t.name, costHtml(t.cost),
-          `${t.desc} — at the ${BUILDINGS[t.at].name}`, p.techs.has(id));
+          `${t.desc} — ${where}`, p.techs.has(id));
       }
     }
     if (a === SETTLEMENTS.length - 1) {

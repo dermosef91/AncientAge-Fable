@@ -18,10 +18,14 @@ export type BuildingTypeId =
   | 'statue' | 'garden' | 'plaza' | 'lighthouse' | 'forum' | 'wonder'
   // player-laid stone: a road piece, not a building (see sim/civic.ts)
   | 'causeway'
+  // civilization uniques
+  | 'obelisk' | 'acropolis' | 'castrum'
   // encounter props (owner 2)
   | 'den' | 'camp' | 'cairn' | 'pedestal' | 'outpost'
-  // free villages and the one landmark
-  | 'hut' | 'beacon' | 'obelisk' | 'spring';
+  // free villages and the one landmark. The Obelisk of the Lost is a `menhir`
+  // here so it does not collide with Egypt's Obelisk above — a standing stone
+  // raised over the dead is what it is either way.
+  | 'hut' | 'beacon' | 'menhir' | 'spring';
 
 /**
  * What a target *is*, for counter bonuses. Attacks carry a table of flat
@@ -59,6 +63,11 @@ export type EncounterKind =
  */
 export type LandmarkKind = 'beacon' | 'obelisk' | 'grove' | 'spring';
 export const LANDMARK_KINDS: LandmarkKind[] = ['beacon', 'obelisk', 'grove', 'spring'];
+
+/** The prop each landmark stands as. The Amber Grove is trees, and has none. */
+export const LANDMARK_BUILDING: Record<LandmarkKind, BuildingTypeId | null> = {
+  beacon: 'beacon', obelisk: 'menhir', grove: null, spring: 'spring'
+};
 export type SiteState = 'dormant' | 'active' | 'cleared';
 
 /** One point of interest in the wilds, placed at map gen. */
@@ -147,6 +156,8 @@ export interface Unit {
    * rather than standing at home for the rest of the match.
    */
   exploring?: boolean;
+  /** Speed multiplier from ground effects (Rome's Roads). Sampled, not per-tick. */
+  speedAura: number;
 }
 
 export interface QueueItem {

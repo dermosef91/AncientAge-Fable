@@ -4,7 +4,7 @@
 // the wilds between them are seeded with encounters worth marching out for.
 import { ENC, MAP_H, MAP_W, WILDS } from '../core/config';
 import type { BuildingTypeId, EncounterKind, EncounterSite, Faction, UnitTypeId } from '../core/types';
-import { LANDMARK_KINDS } from '../core/types';
+import { LANDMARK_BUILDING, LANDMARK_KINDS } from '../core/types';
 import { clamp, dist, fbm, makeNoise2D, makeRng } from '../core/utils';
 import { F_BLOCK, F_BUILDING, F_WATER, landPassable, nearestFree } from './pathfinding';
 import type { World } from './world';
@@ -946,7 +946,8 @@ export function genMap(world: World, seed: number, playerFaction: Faction, aiFac
             site.state = 'active';
           }
         } else {
-          site.buildingId = wildBuilding(kind, s.cx, s.cz);
+          const prop = LANDMARK_BUILDING[kind];
+          site.buildingId = prop ? wildBuilding(prop, s.cx, s.cz) : 0;
           if (!site.buildingId) world.sites.pop();
           else site.state = 'active';
         }

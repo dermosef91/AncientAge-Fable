@@ -38,7 +38,7 @@ interface Style {
   accent: number; column: number;
 }
 const STYLE: Record<Faction, Style> = {
-  egypt: { wall: 0xdcc397, wallDark: 0xc9ab77, roof: 0xd3b888, trim: 0xd9a33c, accent: 0x2a56c6, column: 0xe0cb9d },
+  egypt: { wall: 0xdcc397, wallDark: 0xc9ab77, roof: 0xd3b888, trim: 0xd9a33c, accent: 0x17a68e, column: 0xe0cb9d },
   greece: { wall: 0xf0ebdc, wallDark: 0xded6c0, roof: 0x3565c8, trim: 0xf7f3e8, accent: 0x2f6fd0, column: 0xf4f0e4 },
   rome: { wall: 0xe8dcc2, wallDark: 0xd6c6a6, roof: 0xb5533c, trim: 0xd9a33c, accent: 0xa93226, column: 0xe2d5b8 }
 };
@@ -225,6 +225,9 @@ export function buildingGeo(type: BuildingTypeId, faction: Faction, tier = 0): T
       case 'lighthouse': lighthouseB(p, s, faction); break;
       case 'forum': forumB(p, s, faction); break;
       case 'wonder': wonderB(p, s, faction); break;
+      case 'obelisk': obeliskB(p, s); break;
+      case 'acropolis': acropolisB(p, s, tier); break;
+      case 'castrum': castrumB(p, s); break;
       default: wildsBuilding(p, type); break; // encounter props (den, camp, …)
     }
     if (!NO_DRESS.has(type)) dress(p, s, tier, BUILDINGS[type].size);
@@ -241,8 +244,8 @@ export function buildingGeo(type: BuildingTypeId, faction: Faction, tier = 0): T
 
 /** Flat, already-ornamental or wilds types skip the generic status dressing. */
 const NO_DRESS = new Set<BuildingTypeId>([
-  'wall', 'farm', 'plaza', 'garden', 'statue', 'causeway',
-  'den', 'camp', 'cairn', 'pedestal', 'outpost', 'hut', 'beacon', 'obelisk', 'spring'
+  'wall', 'farm', 'plaza', 'garden', 'statue', 'causeway', 'obelisk',
+  'den', 'camp', 'cairn', 'pedestal', 'outpost', 'hut', 'beacon', 'menhir', 'spring'
 ]);
 
 /**
@@ -301,8 +304,9 @@ export const BUILDING_VIS_HEIGHT: Record<BuildingTypeId, number> = {
   market: 1.6, shrine: 1.5, temple: 2.2, amphitheater: 1.6, academy: 1.9,
   statue: 1.9, garden: 0.7, plaza: 0.2, lighthouse: 3.4, forum: 1.9, wonder: 3.6,
   causeway: 0.2,
+  obelisk: 3.3, acropolis: 3.4, castrum: 2.1,
   den: 1.2, camp: 1.7, cairn: 0.8, pedestal: 1.3, outpost: 2.2,
-  hut: 1.3, beacon: 3.2, obelisk: 2.6, spring: 1.0
+  hut: 1.3, beacon: 3.2, menhir: 2.6, spring: 1.0
 };
 
 // ------------------------------------------------- camp-tier structures
@@ -329,35 +333,200 @@ function campfire(p: Parts, x: number, z: number, k = 1) {
   p.cone(0xf5c04a, 0.07 * k, 0.2 * k, x, 0.28 * k, z, { seg: 4 });
 }
 
-/** Camp town center: the chieftain's marquee, cooking fire, family tents. */
-function tcCamp(p: Parts, s: Style) {
-  // trampled earth
-  p.cyl(PAL.dirt, 1.92, 1.98, 0.09, 0, 0.045, 0, { seg: 12 });
-  p.cyl(0x8f7150, 1.5, 1.56, 0.05, 0, 0.11, 0, { seg: 12, shade: 0.97 });
-  // marquee: tall canvas cone on a center pole over a painted skirt
-  p.cone(s.accent, 1.5, 0.5, 0, 0.35, -0.35, { seg: 8, shade: 0.92 });
-  p.cone(PAL.cloth, 1.42, 1.9, 0, 1.12, -0.35, { seg: 8, shade: 1.03 });
-  p.cyl(PAL.woodDark, 0.035, 0.045, 2.25, 0, 1.12, -0.35, { seg: 5 });
-  flagpole(p, 0, 2.15, -0.35, 0.55, s.accent);
-  // door flap + canvas porch on poles
-  p.box(0x4a3826, 0.5, 0.85, 0.07, 0, 0.45, 0.75, { rx: -0.45 });
-  p.box(PAL.cloth, 1.15, 0.05, 0.85, 0, 1.0, 1.15, { rx: 0.16, shade: 1.05 });
-  for (const sx of [-1, 1]) p.cyl(PAL.woodDark, 0.024, 0.03, 0.95, sx * 0.52, 0.48, 1.5, { seg: 4 });
-  // guy ropes staked at the back
-  for (const sx of [-1, 1]) {
-    p.cyl(0xcbb894, 0.012, 0.012, 1.0, sx * 1.35, 0.5, -1.1, { seg: 3, rx: -0.35, rz: sx * 0.55 });
+/**
+ * Camp town center, Egypt: an open linen shade pavilion — a flat canopy on
+ * carved poles over the chief's dais, reed windbreaks against the sand.
+ */
+function tcCampEgypt(p: Parts, s: Style) {
+  // trampled sand
+  p.cyl(PAL.sand, 1.92, 1.98, 0.09, 0, 0.045, 0, { seg: 12 });
+  p.cyl(0xcaa878, 1.5, 1.56, 0.05, 0, 0.11, 0, { seg: 12, shade: 0.97 });
+  // flat canopy with a striped valance hanging from both long edges
+  p.box(PAL.cloth, 2.55, 0.05, 2.05, 0, 1.5, -0.15, { rx: 0.05, shade: 1.05 });
+  for (let i = 0; i < 8; i++) {
+    const vx = -1.05 + i * 0.3;
+    p.box(i % 2 === 0 ? s.accent : PAL.cloth, 0.28, 0.18, 0.03, vx, 1.42, 0.86);
+    p.box(i % 2 === 0 ? s.accent : PAL.cloth, 0.28, 0.16, 0.03, vx, 1.4, -1.16);
   }
+  // carved poles with gilt finials
+  for (const px of [-1.15, 1.15]) {
+    for (const pz of [0.8, -0.1, -1.05]) {
+      p.cyl(PAL.woodDark, 0.026, 0.034, 1.48, px, 0.74, pz, { seg: 5 });
+      p.sphere(PAL.gold, 0.04, px, 1.5, pz, { seg: 4 });
+    }
+  }
+  // reed-mat windbreak on the back and west side
+  p.box(0xc9b06a, 2.3, 0.5, 0.06, 0, 0.36, -1.32, { shade: 1.02 });
+  p.box(0xc9b06a, 0.06, 0.5, 1.7, -1.38, 0.36, -0.4, { shade: 0.98 });
+  for (const wx of [-1.05, 0, 1.05]) p.cyl(PAL.woodDark, 0.022, 0.028, 0.62, wx, 0.31, -1.34, { seg: 4 });
+  // the chief's dais: painted mat and cushions
+  p.box(s.accent, 0.95, 0.05, 0.72, 0, 0.16, -0.45, { shade: 0.95 });
+  p.sphere(PAL.gold, 0.09, -0.2, 0.23, -0.6, { seg: 5, sy: 0.6 });
+  p.sphere(PAL.berry, 0.08, 0.16, 0.22, -0.5, { seg: 5, sy: 0.6 });
+  // water jars and cut palm fronds
+  amphora(p, 0xb5744a, 0.95, 0.35, 0.95);
+  amphora(p, 0xb5744a, 1.15, 0.12, 0.8);
+  for (let i = 0; i < 3; i++) {
+    p.cone(PAL.palmLeaf, 0.05, 0.55, -0.95, 0.06, 0.75 + i * 0.1, { seg: 4, rx: Math.PI / 2 - 0.12, ry: 0.4 + i * 0.5 });
+  }
+  flagpole(p, 1.5, 0, 1.35, 1.5, s.accent);
   // cooking fire, family tents, supplies
   campfire(p, 1.25, 0.95);
   hideTent(p, s, -1.35, -1.2, 0.8, 0.5);
   hideTent(p, s, 1.35, -1.15, 0.72, -0.7);
-  crates(p, -1.25, 0.85, 0.85);
   basket(p, -0.85, 1.25);
   basket(p, 1.7, -0.1, 0.9);
 }
 
-/** Hamlet/Village town center: a timber great hall under a thatch roof. */
-function tcTimberHall(p: Parts, s: Style) {
+/**
+ * Camp town center, Greece: a great ridge tent — an A-frame of pale canvas
+ * with a painted hem, a tripod cauldron at the fire, arms stacked outside.
+ */
+function tcCampGreece(p: Parts, s: Style) {
+  // trampled earth
+  p.cyl(PAL.dirt, 1.92, 1.98, 0.09, 0, 0.045, 0, { seg: 12 });
+  p.cyl(0x8f7150, 1.5, 1.56, 0.05, 0, 0.11, 0, { seg: 12, shade: 0.97 });
+  // A-frame canvas over a painted hem
+  p.box(s.accent, 2.4, 0.16, 2.72, 0, 0.16, -0.3, { shade: 0.92 });
+  p.prism(PAL.cloth, 2.35, 1.5, 2.7, 0, 0.1, -0.3, { shade: 1.03 });
+  // ridgepole through both gables, crossed poles at the ends
+  p.cyl(PAL.woodDark, 0.026, 0.026, 3.1, 0, 1.58, -0.3, { seg: 4, rx: Math.PI / 2 });
+  p.sphere(PAL.gold, 0.045, 0, 1.58, 1.25, { seg: 4 });
+  p.sphere(PAL.gold, 0.045, 0, 1.58, -1.85, { seg: 4 });
+  for (const gz of [1.02, -1.62]) {
+    p.cyl(PAL.woodDark, 0.02, 0.02, 0.5, 0, 1.52, gz, { seg: 4, rz: 0.45 });
+    p.cyl(PAL.woodDark, 0.02, 0.02, 0.5, 0, 1.52, gz, { seg: 4, rz: -0.45 });
+  }
+  // door flap + porch awning on poles
+  p.box(0x4a3826, 0.5, 0.75, 0.06, 0, 0.38, 1.02, { rx: -0.2 });
+  p.box(PAL.cloth, 1.1, 0.05, 0.7, 0, 1.05, 1.32, { rx: 0.18, shade: 1.05 });
+  for (const sx of [-1, 1]) p.cyl(PAL.woodDark, 0.022, 0.028, 0.95, sx * 0.5, 0.48, 1.6, { seg: 4 });
+  // guy ropes staked off the flanks
+  for (const sx of [-1, 1]) {
+    p.cyl(0xcbb894, 0.012, 0.012, 0.9, sx * 1.5, 0.45, -0.5, { seg: 3, rz: sx * 0.75 });
+  }
+  // tripod cauldron over the fire
+  campfire(p, 1.25, 0.95);
+  for (let i = 0; i < 3; i++) {
+    const a = i * (Math.PI * 2 / 3) + 0.5;
+    p.cyl(PAL.woodDark, 0.018, 0.018, 0.72, 1.25 + Math.cos(a) * 0.22, 0.34, 0.95 + Math.sin(a) * 0.22, { seg: 4, rx: Math.cos(a + 1) * 0.3, rz: -Math.cos(a) * 0.3 });
+  }
+  p.sphere(0x4a443c, 0.13, 1.25, 0.6, 0.95, { seg: 6, sy: 0.8 });
+  // a shield and spear leaning on the canvas
+  p.cyl(s.accent, 0.21, 0.21, 0.035, -1.2, 0.3, 0.5, { seg: 8, rx: 0.4, rz: 0.9 });
+  p.sphere(PAL.gold, 0.045, -1.26, 0.32, 0.5, { seg: 4 });
+  p.cyl(PAL.woodDark, 0.014, 0.014, 1.3, -1.05, 0.6, 0.72, { seg: 3, rz: 0.5 });
+  p.cone(0x8a8378, 0.03, 0.1, -1.34, 1.18, 0.72, { seg: 4, rz: 0.5 });
+  flagpole(p, 1.45, 0, 1.4, 1.5, s.accent);
+  hideTent(p, s, -1.35, -1.25, 0.78, 0.5);
+  amphora(p, 0x9c5a3c, 0.85, 0.35, 0.95);
+  amphora(p, 0x9c5a3c, 1.05, 0.12, 0.8);
+  basket(p, -0.85, 1.25);
+}
+
+/**
+ * Camp town center, Rome: an ordered military camp — a leather ridge tent
+ * behind a staked palisade, a vexillum at the gate, stores squared away.
+ */
+function tcCampRome(p: Parts, s: Style) {
+  // trampled earth
+  p.cyl(PAL.dirt, 1.92, 1.98, 0.09, 0, 0.045, 0, { seg: 12 });
+  p.cyl(0x8f7150, 1.5, 1.56, 0.05, 0, 0.11, 0, { seg: 12, shade: 0.97 });
+  // the praetorium: leather walls under a ridge roof, red-trimmed
+  p.box(0xc4a87e, 1.85, 0.52, 2.25, 0, 0.38, -0.35);
+  p.prism(0xcfb28a, 2.05, 0.72, 2.45, 0, 0.62, -0.35, { shade: 1.02 });
+  for (const sx of [-1, 1]) p.box(s.accent, 0.06, 0.1, 2.45, sx * 1.0, 0.66, -0.35);
+  p.cyl(PAL.woodDark, 0.024, 0.024, 2.8, 0, 1.32, -0.35, { seg: 4, rx: Math.PI / 2 });
+  p.sphere(PAL.gold, 0.04, 0, 1.32, 1.1, { seg: 4 });
+  p.sphere(PAL.gold, 0.04, 0, 1.32, -1.8, { seg: 4 });
+  // door with painted posts
+  p.box(0x4a3826, 0.42, 0.5, 0.05, 0, 0.3, 0.83);
+  for (const sx of [-1, 1]) p.box(s.accent, 0.05, 0.55, 0.05, sx * 0.26, 0.32, 0.83);
+  // staked palisade across the front, a gate gap in the middle
+  for (const sx of [-1, 1]) {
+    for (let i = 0; i < 5; i++) {
+      const px = sx * (0.75 + i * 0.22);
+      p.cyl(PAL.woodDark, 0.045, 0.055, 0.5, px, 0.25, 1.5, { seg: 5 });
+      p.cone(PAL.wood, 0.045, 0.12, px, 0.56, 1.5, { seg: 5 });
+    }
+    p.box(PAL.wood, 1.0, 0.045, 0.05, sx * 1.19, 0.4, 1.5, { shade: 0.9 });
+  }
+  // the vexillum at the gate
+  p.cyl(PAL.woodDark, 0.022, 0.028, 1.7, 0.42, 0.85, 1.62, { seg: 4 });
+  p.box(PAL.woodDark, 0.5, 0.03, 0.03, 0.42, 1.56, 1.62);
+  p.box(s.accent, 0.4, 0.44, 0.025, 0.42, 1.32, 1.62);
+  p.box(PAL.gold, 0.4, 0.04, 0.04, 0.42, 1.54, 1.62);
+  p.cone(PAL.gold, 0.045, 0.13, 0.42, 1.78, 1.62, { seg: 4 });
+  // squad tents pitched in file, stores squared away
+  for (const [tx, tz] of [[-1.35, -1.1], [1.35, -1.05]]) {
+    p.box(0xc4a87e, 0.55, 0.28, 0.72, tx, 0.16, tz);
+    p.prism(0xcfb28a, 0.65, 0.34, 0.8, tx, 0.28, tz, { shade: 1.02 });
+    p.box(0x4a3826, 0.2, 0.22, 0.04, tx, 0.14, tz + 0.41);
+  }
+  for (let i = 0; i < 3; i++) {
+    p.cyl(PAL.woodDark, 0.05, 0.055, 0.5, -1.28 + (i % 2) * 0.11, 0.06 + Math.floor(i / 2) * 0.09, 0.75, { seg: 5, rx: Math.PI / 2 });
+  }
+  crates(p, -1.3, 0.25, 0.8);
+  campfire(p, 1.2, 0.7);
+  basket(p, 1.6, 0.15, 0.9);
+}
+
+/**
+ * Hamlet/Village town center, Egypt: a flat-roofed mudbrick compound —
+ * timber is scarce on the river, so the walls go up in brick from the start.
+ */
+function tcHallEgypt(p: Parts, s: Style, tier: number) {
+  // packed plinth
+  p.box(PAL.sandLight, 3.9, 0.2, 3.9, 0, 0.1, 0);
+  p.box(PAL.sand, 3.5, 0.12, 3.5, 0, 0.26, 0, { shade: 0.95 });
+  // mudbrick hall with a darker base course
+  p.box(s.wall, 2.9, 1.2, 2.15, 0, 0.9, -0.4);
+  p.box(s.wallDark, 2.98, 0.18, 2.23, 0, 0.42, -0.4, { shade: 0.97 });
+  // flat mud roof with a parapet lip
+  p.box(s.roof, 3.0, 0.14, 2.25, 0, 1.56, -0.4, { shade: 1.05 });
+  p.box(s.wallDark, 3.04, 0.1, 0.1, 0, 1.67, 0.67);
+  p.box(s.wallDark, 3.04, 0.1, 0.1, 0, 1.67, -1.47);
+  p.box(s.wallDark, 0.1, 0.1, 2.25, -1.47, 1.67, -0.4);
+  p.box(s.wallDark, 0.1, 0.1, 2.25, 1.47, 1.67, -0.4);
+  // beam ends poking through the brick under the roofline
+  for (let i = 0; i < 5; i++) {
+    const bx = -1.0 + i * 0.5;
+    p.cyl(PAL.woodDark, 0.035, 0.035, 0.14, bx, 1.38, 0.72, { seg: 4, rx: Math.PI / 2 });
+    p.cyl(PAL.woodDark, 0.035, 0.035, 0.14, bx, 1.38, -1.52, { seg: 4, rx: Math.PI / 2 });
+  }
+  // door, steps and a reed-mat porch on poles
+  doorway(p, 0x3a2c1c, 0.55, 0.8, 0, 0.32, 0.68, { frame: s.wallDark });
+  steps(p, PAL.sandLight, 0.9, 0, 0, 1.7);
+  p.box(0xc9b06a, 1.15, 0.05, 0.8, 0, 1.2, 1.05, { rx: 0.18, shade: 1.04 });
+  p.box(s.accent, 1.17, 0.045, 0.16, 0, 1.13, 1.38, { rx: 0.18 });
+  for (const sx of [-1, 1]) p.cyl(PAL.woodDark, 0.022, 0.028, 1.1, sx * 0.52, 0.55, 1.4, { seg: 4 });
+  // high, small windows against the heat
+  win(p, s.wallDark, -0.95, 1.15, 0.68, { w: 0.14, h: 0.16 });
+  win(p, s.wallDark, 0.95, 1.15, 0.68, { w: 0.14, h: 0.16 });
+  // rooftop jars and a drying cloth
+  p.sphere(0xb5744a, 0.1, 0.75, 1.71, -0.85, { seg: 5, sy: 1.3 });
+  p.sphere(0xb5744a, 0.085, 0.45, 1.7, -1.0, { seg: 5, sy: 1.3 });
+  p.box(PAL.cloth, 0.5, 0.03, 0.35, -0.6, 1.66, -0.6, { ry: 0.3, shade: 1.05 });
+  // faction banners by the door + a standard at the corner
+  wallBanner(p, s, -0.62, 1.3, 0.7);
+  wallBanner(p, s, 0.62, 1.3, 0.7);
+  flagpole(p, 1.45, 0.32, 1.45, 1.5, s.accent);
+  basket(p, -0.95, 1.4);
+  amphora(p, 0xb5744a, -1.3, 1.05, 0.9);
+  if (tier >= 2) {
+    // Village: painted cornice, a roof stair hut, mudbrick yard stubs
+    p.box(s.accent, 2.96, 0.1, 2.21, 0, 1.48, -0.4);
+    p.box(s.wall, 0.6, 0.42, 0.6, -0.85, 1.84, -0.9);
+    p.box(s.wallDark, 0.66, 0.07, 0.66, -0.85, 2.08, -0.9);
+    for (const sx of [-1, 1]) p.box(s.wallDark, 0.5, 0.4, 0.16, sx * 1.6, 0.45, 1.35);
+  }
+}
+
+/**
+ * Hamlet/Village town center, Greece: a timber great hall gable-front like
+ * the temples to come — painted bargeboards, a post porch, thatch above.
+ */
+function tcHallGreece(p: Parts, s: Style, tier: number) {
   const thatch = { roof: 0xc2a05c };
   // packed plinth
   p.box(PAL.sandLight, 3.9, 0.2, 3.9, 0, 0.1, 0);
@@ -368,24 +537,91 @@ function tcTimberHall(p: Parts, s: Style) {
     p.box(PAL.woodDark, 2.94, 0.045, 2.19, 0, 0.55 + i * 0.34, -0.4, { shade: 0.92 });
   }
   gabledRoof(p, thatch, 3.3, 0.95, 2.6, 0, 1.46, -0.4);
-  // door with a small canvas porch
-  doorway(p, 0x3a2c1c, 0.55, 0.8, 0, 0.32, 0.68, { frame: PAL.woodDark });
+  // painted bargeboards and a gilt emblem on the front gable
+  for (const sx of [-1, 1]) p.box(s.accent, 1.75, 0.07, 0.07, sx * 0.8, 1.95, 0.92, { rz: -sx * 0.52 });
+  p.box(PAL.gold, 0.15, 0.15, 0.05, 0, 1.98, 0.93, { rz: Math.PI / 4 });
+  // porch over the door: rough posts at Hamlet, dressed columns at Village
+  p.box(0xc2a05c, 1.3, 0.06, 0.85, 0, 1.3, 1.1, { rx: 0.22, shade: 1.02 });
+  if (tier >= 2) colonnade(p, s, 2, -0.52, 0.52, 0.32, 1.42, 0.95, 0.08);
+  else for (const sx of [-1, 1]) p.cyl(PAL.woodDark, 0.035, 0.045, 1.0, sx * 0.52, 0.82, 1.42, { seg: 5 });
+  doorway(p, 0x37455e, 0.55, 0.8, 0, 0.32, 0.68, { frame: PAL.woodDark });
   steps(p, PAL.sandLight, 0.9, 0, 0, 1.7);
-  p.box(PAL.cloth, 1.1, 0.05, 0.75, 0, 1.14, 1.05, { rx: 0.2, shade: 1.04 });
-  for (const sx of [-1, 1]) p.cyl(PAL.woodDark, 0.022, 0.028, 1.05, sx * 0.5, 0.52, 1.38, { seg: 4 });
   win(p, PAL.woodDark, -0.95, 0.95, 0.68);
   win(p, PAL.woodDark, 0.95, 0.95, 0.68);
   // faction banners by the door + a standard at the corner
   wallBanner(p, s, -0.62, 1.3, 0.7);
   wallBanner(p, s, 0.62, 1.3, 0.7);
   flagpole(p, 1.45, 0.32, 1.45, 1.5, s.accent);
-  crates(p, -1.35, 1.1, 0.9);
+  amphora(p, 0x9c5a3c, -1.25, 1.05, 0.9);
+  amphora(p, 0x9c5a3c, -1.45, 0.8, 0.8);
   basket(p, -0.95, 1.4);
+  if (tier >= 2) {
+    // Village: antefix studs along the front eave
+    for (const ax of [-1.2, -0.4, 0.4, 1.2]) p.box(s.trim, 0.08, 0.09, 0.05, ax, 1.52, 0.95);
+  }
+}
+
+/**
+ * Hamlet/Village town center, Rome: a plastered timber principia with side
+ * wings — the villa's plan in wood, thatched at first, tiled by Village.
+ */
+function tcHallRome(p: Parts, s: Style, tier: number) {
+  const roofC = tier >= 2 ? { roof: s.roof } : { roof: 0xc2a05c };
+  // packed plinth
+  p.box(PAL.sandLight, 3.9, 0.2, 3.9, 0, 0.1, 0);
+  p.box(PAL.dirt, 3.5, 0.12, 3.5, 0, 0.26, 0);
+  // main hall: plaster panels in a squared timber frame
+  p.box(s.wall, 2.6, 1.15, 1.9, 0, 0.88, -0.55);
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) p.box(PAL.woodDark, 0.12, 1.18, 0.12, sx * 1.26, 0.89, -0.55 + sz * 0.91);
+  }
+  p.box(PAL.woodDark, 2.64, 0.07, 1.94, 0, 1.42, -0.55, { shade: 0.92 });
+  gabledRoof(p, roofC, 3.0, 0.85, 2.3, 0, 1.46, -0.55);
+  // side wings, prefiguring the villa
+  for (const sx of [-1, 1]) {
+    p.box(s.wall, 1.0, 0.85, 1.35, sx * 1.5, 0.72, 0.35);
+    gabledRoof(p, roofC, 1.2, 0.45, 1.55, sx * 1.5, 1.15, 0.35);
+    win(p, PAL.woodDark, sx * 1.5, 0.8, 1.04, { w: 0.15, h: 0.2 });
+  }
+  // squared portico over the door
+  p.box(roofC.roof, 1.2, 0.06, 0.75, 0, 1.34, 0.62, { rx: 0.2, shade: 0.95 });
+  for (const sx of [-1, 1]) p.box(PAL.woodDark, 0.1, 1.05, 0.1, sx * 0.5, 0.72, 0.92);
+  doorway(p, 0x40302a, 0.55, 0.8, 0, 0.32, 0.42, { frame: PAL.woodDark });
+  steps(p, PAL.sandLight, 0.9, 0, 0, 0.62);
+  win(p, PAL.woodDark, -0.85, 0.95, 0.41);
+  win(p, PAL.woodDark, 0.85, 0.95, 0.41);
+  // twin standards flanking the approach
+  for (const sx of [-1, 1]) {
+    flagpole(p, sx * 0.85, 0.32, 1.5, 1.35);
+    p.box(s.accent, 0.42, 0.3, 0.035, sx * 0.85, 1.38, 1.5);
+    p.box(PAL.gold, 0.42, 0.045, 0.045, sx * 0.85, 1.56, 1.5);
+  }
+  // banners on the wing fronts, stores stacked square
+  wallBanner(p, s, -1.5, 1.25, 1.14);
+  wallBanner(p, s, 1.5, 1.25, 1.14);
+  for (let i = 0; i < 3; i++) {
+    p.cyl(PAL.woodDark, 0.05, 0.055, 0.5, -1.5 + (i % 2) * 0.11, 0.38 + Math.floor(i / 2) * 0.09, -1.45, { seg: 5, rx: Math.PI / 2 });
+  }
+  crates(p, 1.45, -1.35, 0.85);
+  if (tier >= 2) {
+    // Village: tile fascia along the eaves to go with the new roof
+    for (const sx of [-1, 1]) p.box(s.trim, 0.07, 0.09, 2.34, sx * 1.51, 1.44, -0.55, { shade: 0.9 });
+  }
 }
 
 function towncenter(p: Parts, s: Style, f: Faction, tier = 0) {
-  if (tier <= 0) { tcCamp(p, s); return; }
-  if (tier <= 2) { tcTimberHall(p, s); return; }
+  if (tier <= 0) {
+    if (f === 'egypt') tcCampEgypt(p, s);
+    else if (f === 'greece') tcCampGreece(p, s);
+    else tcCampRome(p, s);
+    return;
+  }
+  if (tier <= 2) {
+    if (f === 'egypt') tcHallEgypt(p, s, tier);
+    else if (f === 'greece') tcHallGreece(p, s, tier);
+    else tcHallRome(p, s, tier);
+    return;
+  }
   // base plinth
   p.box(PAL.sandLight, 3.9, 0.22, 3.9, 0, 0.11, 0, { shade: 1.02 });
   p.box(s.wallDark, 3.5, 0.14, 3.5, 0, 0.29, 0);
@@ -1295,6 +1531,152 @@ function forumB(p: Parts, s: Style, f: Faction) {
   for (const sx of [-1, 1]) {
     flagpole(p, sx * 1.15, 0.15, -1.1, 1.5);
     p.box(s.accent, 0.4, 0.28, 0.04, sx * 1.15, 1.35, -1.1);
+  }
+}
+
+// ------------------------------------------------- civilization uniques
+/**
+ * Egypt's Obelisk: a single tapered shaft on a stepped plinth, carved in
+ * registers and capped in gold. One cell of footprint, three of height — it is
+ * meant to be read from across the map, because seeing is the whole point.
+ */
+function obeliskB(p: Parts, s: Style) {
+  // stepped plinth
+  p.box(PAL.sandLight, 0.95, 0.1, 0.95, 0, 0.05, 0, { shade: 1.03 });
+  p.box(s.wallDark, 0.78, 0.16, 0.78, 0, 0.18, 0);
+  p.box(s.wall, 0.62, 0.14, 0.62, 0, 0.33, 0, { shade: 1.02 });
+  // the shaft, square in plan and tapering to the pyramidion
+  p.cyl(s.wall, 0.16, 0.25, 2.5, 0, 1.65, 0, { seg: 4, ry: Math.PI / 4 });
+  // carved registers: painted bands with a gold rule under each
+  for (let i = 0; i < 4; i++) {
+    const y = 0.75 + i * 0.5;
+    const w = 0.5 - i * 0.045;
+    p.box(s.accent, w, 0.11, w, 0, y, 0, { ry: Math.PI / 4, shade: 0.95 });
+    p.box(PAL.gold, w * 0.96, 0.035, w * 0.96, 0, y - 0.09, 0, { ry: Math.PI / 4 });
+  }
+  // gilded pyramidion
+  p.cone(PAL.goldBright, 0.24, 0.36, 0, 3.08, 0, { seg: 4, ry: Math.PI / 4 });
+  p.cyl(PAL.gold, 0.17, 0.19, 0.07, 0, 2.93, 0, { seg: 4, ry: Math.PI / 4 });
+  // offering bowls at the foot
+  for (const sx of [-1, 1]) {
+    p.cyl(0xb5744a, 0.09, 0.06, 0.08, sx * 0.34, 0.44, 0.3, { seg: 6 });
+    p.sphere(0xe0813c, 0.05, sx * 0.34, 0.5, 0.3, { seg: 4 });
+  }
+}
+
+/**
+ * Greece's Acropolis: the town center on its rock. The temple front of the
+ * civic hall is still there, but it now stands behind a fighting wall with
+ * bastion corners and a manned platform — a town center you have to besiege.
+ */
+function acropolisB(p: Parts, s: Style, tier: number) {
+  // the rock: two courses of rough ashlar under a dressed terrace
+  p.box(PAL.stone, 3.9, 0.26, 3.9, 0, 0.13, 0, { shade: 0.94 });
+  p.box(s.wallDark, 3.6, 0.22, 3.6, 0, 0.36, 0);
+  p.box(s.wall, 3.3, 0.14, 3.3, 0, 0.53, 0, { shade: 1.03 });
+  // curtain wall around three sides, crenellated
+  for (const sd of [-1, 1]) {
+    p.box(s.wall, 3.3, 0.62, 0.3, 0, 0.91, sd * 1.5);
+    crenellations(p, s.wallDark, 3.2, 1.28, sd * 1.5, 8);
+  }
+  p.box(s.wall, 0.3, 0.62, 2.7, -1.5, 0.91, 0);
+  crenellations(p, s.wallDark, 2.6, 1.28, -1.5, 6);
+  p.box(s.wall, 0.3, 0.62, 2.7, 1.5, 0.91, 0);
+  crenellations(p, s.wallDark, 2.6, 1.28, 1.5, 6);
+  // bastion towers at the two front corners, each with a shooting platform
+  for (const sx of [-1, 1]) {
+    p.cyl(s.wallDark, 0.44, 0.52, 1.5, sx * 1.5, 1.35, 1.5, { seg: 6 });
+    p.cyl(s.wall, 0.5, 0.5, 0.1, sx * 1.5, 2.15, 1.5, { seg: 6, shade: 1.04 });
+    p.cyl(PAL.wood, 0.44, 0.44, 0.06, sx * 1.5, 2.23, 1.5, { seg: 6 });
+    for (let i = 0; i < 6; i++) {
+      const a = i * (Math.PI / 3) + 0.3;
+      p.box(s.wall, 0.19, 0.2, 0.19, sx * 1.5 + Math.cos(a) * 0.44, 2.35, 1.5 + Math.sin(a) * 0.44);
+    }
+    // arrow slit facing out
+    p.box(0x33291f, 0.07, 0.26, 0.07, sx * 1.5, 1.6, 1.5 + 0.5);
+  }
+  // the propylaea: a gated way in, columns either side of the stair
+  p.box(s.wallDark, 1.5, 0.72, 0.34, 0, 0.96, 1.5);
+  colonnade(p, s, 2, -0.5, 0.5, 0.6, 1.72, 0.95, 0.09);
+  p.box(s.trim, 1.4, 0.16, 0.36, 0, 1.63, 1.72);
+  doorway(p, 0x37455e, 0.55, 0.8, 0, 0.6, 1.7, { frame: s.wallDark });
+  steps(p, s.wall, 1.3, 0, 0, 1.95);
+  // the hall itself, raised behind the wall — the temple front survives
+  p.box(s.wall, 2.3, 1.25, 1.9, 0, 1.25, -0.35);
+  colonnade(p, s, 4, -0.95, 0.95, 1.88, 0.62, 1.0, 0.09);
+  p.box(s.wallDark, 2.5, 0.16, 2.1, 0, 1.95, -0.3);
+  gabledRoof(p, s, 2.7, 0.7, 2.3, 0, 2.03, -0.3);
+  p.box(s.trim, 2.75, 0.09, 0.18, 0, 2.07, 0.8);
+  win(p, s.wallDark, -1.17, 1.35, -0.35, { ry: -Math.PI / 2 });
+  win(p, s.wallDark, 1.17, 1.35, -0.35, { ry: Math.PI / 2 });
+  p.box(PAL.gold, 0.5, 0.22, 0.05, 0, 2.4, 0.76);
+  wallBanner(p, s, -0.72, 1.78, 0.66, 0, 0.9);
+  wallBanner(p, s, 0.72, 1.78, 0.66, 0, 0.9);
+  if (tier >= 4) {
+    // City and beyond: a gilded akroterion and braziers on the gate
+    p.sphere(PAL.goldBright, 0.1, 0, 2.86, -0.3, { seg: 6 });
+    for (const sx of [-1, 1]) {
+      p.cyl(PAL.stoneLight, 0.06, 0.09, 0.4, sx * 0.62, 0.8, 1.95, { seg: 6 });
+      p.sphere(0xe0813c, 0.09, sx * 0.62, 1.04, 1.95, { seg: 5 });
+    }
+  }
+}
+
+/**
+ * Rome's Castrum: the marching camp, squared off. A ditch and rampart, one
+ * gate under a tower, ordered barrack rows inside and the standards planted
+ * where the two streets cross — a fort you can raise at the front.
+ */
+function castrumB(p: Parts, s: Style) {
+  // ditch spoil and the rampart platform
+  p.box(PAL.dirt, 2.95, 0.1, 2.95, 0, 0.05, 0, { shade: 0.96 });
+  p.box(PAL.sandLight, 2.7, 0.14, 2.7, 0, 0.14, 0);
+  // turf-and-timber rampart on all four sides, gate gap at the front
+  const wallC = { c: s.wallDark, h: 0.6 };
+  p.box(wallC.c, 2.7, wallC.h, 0.24, 0, 0.42, -1.32);
+  p.box(wallC.c, 0.24, wallC.h, 2.4, -1.32, 0.42, 0.06);
+  p.box(wallC.c, 0.24, wallC.h, 2.4, 1.32, 0.42, 0.06);
+  for (const sx of [-1, 1]) p.box(wallC.c, 0.85, wallC.h, 0.24, sx * 0.92, 0.42, 1.32);
+  // palisade stakes along the top of the rampart
+  for (let i = 0; i < 9; i++) {
+    const t = -1.24 + i * 0.31;
+    p.cyl(PAL.woodDark, 0.035, 0.04, 0.3, t, 0.85, -1.32, { seg: 4 });
+    p.cyl(PAL.woodDark, 0.035, 0.04, 0.3, -1.32, 0.85, t * 0.9 + 0.06, { seg: 4 });
+    p.cyl(PAL.woodDark, 0.035, 0.04, 0.3, 1.32, 0.85, t * 0.9 + 0.06, { seg: 4 });
+  }
+  // the gate: two posts, a lintel and a small fighting deck over the road
+  for (const sx of [-1, 1]) {
+    p.box(PAL.wood, 0.16, 1.05, 0.16, sx * 0.44, 0.66, 1.32);
+    p.cyl(PAL.woodDark, 0.04, 0.05, 0.5, sx * 0.44, 1.35, 1.32, { seg: 4 });
+  }
+  p.box(PAL.wood, 1.15, 0.14, 0.22, 0, 1.22, 1.32);
+  p.box(PAL.woodDark, 1.25, 0.06, 0.5, 0, 1.32, 1.32);
+  p.box(s.accent, 0.5, 0.3, 0.04, 0, 1.06, 1.44);
+  // corner watch platforms
+  for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+    p.box(s.wall, 0.42, 0.95, 0.42, sx * 1.32, 0.6, sz * 1.32);
+    p.box(PAL.wood, 0.52, 0.07, 0.52, sx * 1.32, 1.11, sz * 1.32);
+    p.box(PAL.woodDark, 0.5, 0.14, 0.05, sx * 1.32, 1.21, sz * 1.32 + sz * 0.24);
+  }
+  // barrack rows either side of the via principalis
+  for (const sx of [-1, 1]) {
+    p.box(0xc4a87e, 0.72, 0.34, 1.5, sx * 0.72, 0.31, -0.15);
+    p.prism(0xcfb28a, 0.8, 0.34, 1.6, sx * 0.72, 0.48, -0.15, { shade: 1.02 });
+    for (const dz of [-0.55, 0, 0.55]) p.box(0x4a3826, 0.06, 0.18, 0.14, sx * 0.36, 0.24, -0.15 + dz);
+  }
+  // the standards where the streets cross
+  p.box(PAL.stoneLight, 0.5, 0.1, 0.5, 0, 0.2, 0.72);
+  for (const sx of [-1, 1]) {
+    p.cyl(PAL.woodDark, 0.022, 0.026, 1.15, sx * 0.14, 0.8, 0.72, { seg: 4 });
+    p.box(s.accent, 0.26, 0.3, 0.03, sx * 0.14, 1.15, 0.72);
+    p.box(PAL.gold, 0.26, 0.045, 0.045, sx * 0.14, 1.32, 0.72);
+    p.sphere(PAL.goldBright, 0.05, sx * 0.14, 1.4, 0.72, { seg: 5 });
+  }
+  // the surgeon's bench and a rack of pila by the gate
+  p.box(PAL.wood, 0.4, 0.06, 0.24, -0.95, 0.4, 0.95);
+  p.cyl(0xd8cfb8, 0.05, 0.05, 0.1, -0.95, 0.48, 0.95, { seg: 6 });
+  for (let i = 0; i < 4; i++) {
+    p.cyl(PAL.woodDark, 0.012, 0.012, 0.85, 0.92 + i * 0.07, 0.55, 0.98, { seg: 3, rz: 0.16 });
   }
 }
 

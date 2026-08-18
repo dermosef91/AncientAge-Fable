@@ -5,7 +5,9 @@
 //
 // The Encounters class is stepped from the main loop like the AIController.
 // The exported free functions are hooks called from sim.ts combat code.
-import { BOONS, ENC, MAP_H, MAP_W, NODE_AMOUNT, SCOUT, UNITS, WILDS } from '../core/config';
+import {
+  BOONS, ENC, isTownCenter, MAP_H, MAP_W, NODE_AMOUNT, SCOUT, UNITS, WILDS
+} from '../core/config';
 import type { Building, EncounterSite, Unit } from '../core/types';
 import { clamp, dist, dist2 } from '../core/utils';
 import { landPassable, nearestFree } from './pathfinding';
@@ -277,7 +279,7 @@ export class Encounters {
       if (u.relic) continue; // carrying the idol: let the relic site resolve first
       let home: Building | null = null;
       for (const b of w.buildings.values()) {
-        if (b.owner === 0 && b.type === 'towncenter' && b.built &&
+        if (b.owner === 0 && isTownCenter(b.type) && b.built &&
             dist(u.x, u.z, b.x, b.z) < b.size / 2 + 1.6) { home = b; break; }
       }
       if (!home) continue;
@@ -317,7 +319,7 @@ export class Encounters {
     site.holder = taken;
     w.reassignBuilding(fort, taken);
     if (taken === 0) {
-      w.markExplored(site.x, site.z, ENC.outpostVision);
+      w.markExplored(site.x, site.z, w.buildingVision(0, 'outpost'));
       w.emit({
         t: 'toast', owner: 0,
         msg: prev === 1 ? 'You take the ruined fort back' : 'The ruined fort is yours', kind: 'good'
@@ -494,7 +496,7 @@ export class Encounters {
       site.x = carrier.x;
       site.z = carrier.z;
       for (const b of w.buildings.values()) {
-        if (b.owner === 0 && b.type === 'towncenter' && b.built &&
+        if (b.owner === 0 && isTownCenter(b.type) && b.built &&
             dist(carrier.x, carrier.z, b.x, b.z) < b.size / 2 + ENC.relicDepositR) {
           carrier.relic = false;
           site.carrierId = 0;

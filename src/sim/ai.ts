@@ -2,9 +2,12 @@
 // escalating attack waves. Issues orders through the same command API
 // as the player.
 import {
-  BUILDINGS, DIFFICULTY, ENC, MAX_LEVEL, POP_MAX, SETTLEMENTS, SIEGE_UNITS, trainableAt, UNITS
+  BUILDINGS, DIFFICULTY, ENC, FACTIONS, isTownCenter, MAX_LEVEL, POP_MAX, SETTLEMENTS,
+  SIEGE_UNITS, TECHS, trainableAt, UNITS
 } from '../core/config';
-import type { Building, Difficulty, NodeKind, ResType, Unit, UnitTypeId } from '../core/types';
+import type {
+  Building, BuildingTypeId, Difficulty, NodeKind, ResType, Unit, UnitTypeId
+} from '../core/types';
 import { RES_OF_NODE } from '../core/types';
 import { dist, dist2 } from '../core/utils';
 import type { World } from './world';
@@ -57,6 +60,7 @@ export class AIController {
     // scout that never gets built.
     this.scouting(tc, units);
     this.economy(tc, villagers, buildings);
+    this.research(tc, buildings);
     this.construction(tc, villagers, buildings);
     this.trainMilitary(buildings, military.length);
     // A standing player wonder is a death sentence — drop everything and raze it.
@@ -79,7 +83,7 @@ export class AIController {
 
   private myTC(): Building | null {
     for (const b of this.world.buildings.values()) {
-      if (b.owner === OWNER && b.type === 'towncenter') return b;
+      if (b.owner === OWNER && isTownCenter(b.type)) return b;
     }
     return null;
   }
@@ -116,7 +120,8 @@ export class AIController {
     const saving = p.level < MAX_LEVEL
       && villagers.length >= AI_LEVEL_VILLAGERS[p.level + 1]
       && !w.canAfford(OWNER, SETTLEMENTS[p.level + 1].cost);
-    if (!saving && villagers.length < this.diff.aiVillagers && tc.built && tc.queue.length === 0) {
+    if (!saving && villagers.length < this.diff.aiVillagers && tc.built &&
+        !tc.queue.some(q => q.kind !== 'upgrade')) {
       w.startTrain(tc.id, 'villager');
     }
 
@@ -201,7 +206,9 @@ export class AIController {
     const w = this.world;
     const p = w.players[OWNER];
     if (p.level >= MAX_LEVEL) return;
-    if (tc.queue.length > 0) return;
+    // Villager training gives way to growth, but a walling-up Acropolis holds
+    // the queue for the best part of a minute and must not stall it.
+    if (tc.queue.some(q => q.kind !== 'upgrade')) return;
     // enough workers to keep income flowing while banking for the upgrade
     const need = AI_LEVEL_VILLAGERS[p.level + 1] ?? 12;
     if (villagers < need) return;
@@ -222,7 +229,7 @@ export class AIController {
 
     const place = (type: keyof typeof BUILDINGS, nearX: number, nearZ: number): boolean => {
       if (!w.canAfford(OWNER, w.buildingCost(OWNER, type))) return false;
-      const spot = this.findSpot(BUILDINGS[type].size, nearX, nearZ);
+      const spot = this.findSpot(type, nearX, nearZ);
       if (!spot) return false;
       const b = w.tryPlaceBuilding(OWNER, type, spot.cx, spot.cz);
       if (!b) return false;
@@ -251,6 +258,21 @@ export class AIController {
     // Archery range
     if (p.level >= 2 && has('range') === 0 && (t > 170 || p.res.wood >= 190)) {
       if (place('range', tc.x + 6, tc.z + 5)) return;
+    }
+    // This civilization's own building. It sits this high in the order on
+    // purpose: it is the only door to the civ's own two technologies, and
+    // behind the monuments and wonders below it never got built at all.
+    const uniq = FACTIONS[p.faction].unique;
+    if (uniq === 'acropolis') {
+      // Greece raises no building for this — it walls the town center it has.
+      // Queued behind a settlement upgrade is fine; the queue runs in order.
+      if (p.level >= BUILDINGS.acropolis.level && tc.type === 'towncenter' &&
+          p.res.stone > 200 && p.res.gold > 110 && w.startUpgrade(tc.id)) return;
+    } else if (p.level >= BUILDINGS[uniq].level && has(uniq) < (uniq === 'obelisk' ? 3 : 1)) {
+      // Obelisks watch the road the player will come down; a castrum sits on it.
+      const bearing = Math.atan2(w.tcPos[0].z - tc.z, w.tcPos[0].x - tc.x);
+      const reach = uniq === 'obelisk' ? 11 + has(uniq) * 7 : 10;
+      if (place(uniq, tc.x + Math.cos(bearing) * reach, tc.z + Math.sin(bearing) * reach)) return;
     }
     // Farms when berries run dry
     const berriesLeft = w.findNearestNode(tc.x, tc.z, 'berries', 26);
@@ -294,30 +316,55 @@ export class AIController {
         p.res.wood > 340 && p.res.stone > 390 && p.res.gold > 340) {
       if (place('wonder', tc.x - 8, tc.z - 8)) return;
     }
-    // Research when comfortable (never at the cost of the next level)
-    if (p.res.food > 320 && p.res.gold > 170) {
-      const bar = buildings.find(b => b.type === 'barracks' && b.built && b.queue.length === 0);
-      if (bar) {
-        if (!p.techs.has('bronze')) w.startResearch(bar.id, 'bronze');
-        else if (!p.techs.has('shields')) w.startResearch(bar.id, 'shields');
-      }
-      if (tc.queue.length === 0 && p.level >= 2 && !p.techs.has('wheel')) {
-        w.startResearch(tc.id, 'wheel');
+  }
+
+  /**
+   * Study something. This runs as its own step rather than at the tail of the
+   * build order: `construction` returns the moment it lays a foundation, and a
+   * busy AI lays one most seconds, so anything after it is nearly unreachable.
+   *
+   * Queues are shared with production, so a building need only be near-idle —
+   * waiting for a barracks with nothing to train would mean never researching
+   * at all.
+   */
+  private research(tc: Building, buildings: Building[]) {
+    const w = this.world;
+    const p = w.players[OWNER];
+    // Never at the cost of the next settlement level.
+    if (p.res.food <= 320 || p.res.gold <= 170) return;
+    if (tc.queue.some(q => q.kind === 'level')) return;
+
+    const free = (type: BuildingTypeId) =>
+      buildings.find(b => b.type === type && b.built && b.queue.length < 2);
+
+    const bar = free('barracks');
+    if (bar) {
+      if (!p.techs.has('bronze')) w.startResearch(bar.id, 'bronze');
+      else if (!p.techs.has('shields')) w.startResearch(bar.id, 'shields');
+    }
+    if (p.level >= 2 && !p.techs.has('wheel') && tc.queue.length < 2) {
+      w.startResearch(tc.id, 'wheel');
+    }
+    // ...and the two nobody else can learn, at the building that teaches them.
+    const uniq = FACTIONS[p.faction].unique;
+    const home = free(uniq);
+    if (home) {
+      for (const id of Object.keys(TECHS)) {
+        if (TECHS[id].at === uniq && !p.techs.has(id) && w.startResearch(home.id, id)) break;
       }
     }
   }
 
-  private findSpot(size: number, nearX: number, nearZ: number): { cx: number; cz: number } | null {
+  private findSpot(type: BuildingTypeId, nearX: number, nearZ: number): { cx: number; cz: number } | null {
     const w = this.world;
+    const size = BUILDINGS[type].size;
     const bx = Math.round(nearX - size / 2), bz = Math.round(nearZ - size / 2);
     for (let r = 0; r < 14; r++) {
       for (let attempt = 0; attempt < Math.max(1, r * 6); attempt++) {
         const a = Math.random() * Math.PI * 2;
         const cx = bx + Math.round(Math.cos(a) * r);
         const cz = bz + Math.round(Math.sin(a) * r);
-        if (w.canPlace(OWNER, size === 4 ? 'towncenter' : sizeType(size), cx, cz).ok) {
-          return { cx, cz };
-        }
+        if (w.canPlace(OWNER, type, cx, cz).ok) return { cx, cz };
       }
     }
     return null;
@@ -328,7 +375,9 @@ export class AIController {
     let n = 0;
     for (const b of this.world.buildings.values()) {
       if (b.owner !== 0) continue;
-      if (b.type === 'tower') n += 1;
+      // Anything that shoots back counts, which now includes a town center
+      // that has become an Acropolis — the very thing siege exists for.
+      if (BUILDINGS[b.type].attack) n += 1;
       else if (b.type === 'wall') n += 0.15;   // a wall matters as a line, not a brick
     }
     return n;
@@ -344,7 +393,7 @@ export class AIController {
       .filter(u => u.owner === OWNER && SIEGE_UNITS.has(u.type)).length;
     for (const b of buildings) {
       if (!b.built || !BUILDINGS[b.type].trains) continue;
-      if (b.type === 'towncenter' || b.type === 'dock') continue;
+      if (isTownCenter(b.type) || b.type === 'dock') continue;
       if (b.queue.length >= 2) continue;
       // Siege is a specialist tool, not a doctrine: keep a couple, no more.
       // They are slow and pop-hungry, and a wave of them alone would just die.
@@ -476,7 +525,7 @@ export class AIController {
     const myTc = w.tcPos[OWNER];
     for (const b of w.buildings.values()) {
       if (b.owner !== 0) continue;
-      const mul = b.type === 'wonder' ? 0.25 : b.type === 'towncenter' ? 0.85 : 1;
+      const mul = b.type === 'wonder' ? 0.25 : isTownCenter(b.type) ? 0.85 : 1;
       const score = dist2(b.x, b.z, myTc.x, myTc.z) * mul;
       if (score < bestD) { bestD = score; best = b; }
     }
@@ -484,7 +533,3 @@ export class AIController {
   }
 }
 
-function sizeType(size: number): 'house' | 'barracks' {
-  // helper for canPlace probing by footprint size (2 or 3)
-  return size === 2 ? 'house' : 'barracks';
-}

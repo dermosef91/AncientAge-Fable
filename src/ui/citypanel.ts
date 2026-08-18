@@ -4,7 +4,7 @@
 // enough to know whether you are ahead. This screen answers three questions —
 // what is coming in, where everyone is, and what the rival has — and the third
 // answer is deliberately only as good as your scouting.
-import { ADJ, MAP_H, MAP_W, RES_NAME, RES_ORDER, SETTLEMENTS } from '../core/config';
+import { ADJ, isTownCenter, MAP_H, MAP_W, RES_NAME, RES_ORDER, SETTLEMENTS } from '../core/config';
 import type { ResType, Unit } from '../core/types';
 import { RES_OF_NODE } from '../core/types';
 import { fmtNum } from '../core/utils';
@@ -113,7 +113,7 @@ function rivalReport(world: World): string {
   for (const b of world.buildings.values()) {
     if (b.owner !== 1 || !world.isExploredWorld(b.x, b.z)) continue;
     seenBuildings++;
-    if (b.type === 'towncenter') tcs++;
+    if (isTownCenter(b.type)) tcs++;
   }
   for (const u of world.units.values()) {
     if (u.owner !== 1 || !world.isExploredWorld(u.x, u.z)) continue;
