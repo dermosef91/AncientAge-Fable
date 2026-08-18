@@ -2,8 +2,8 @@
 // context actions, the build menu, toasts and the pause menu.
 import {
   ARMOR_CLASS_NAME, availableTo, BOONS, BUILD_MENU, BUILD_MENU_WIDE, BUILDINGS, ENC,
-  isTownCenter, MARKET_BUY_GOLD, MARKET_LOT, MARKET_SELL_GOLD, MAX_LEVEL, RES_ORDER, SETTLEMENTS,
-  TECHS, trainableAt, UNITS, WILDS, type Cost
+  isTownCenter, MARKET_BUY_GOLD, MARKET_LOT, MARKET_SELL_GOLD, MAX_LEVEL, RES_ORDER, SCOUT,
+  SETTLEMENTS, TECHS, trainableAt, UNITS, WILDS, type Cost
 } from '../core/config';
 import type {
   ArmorClass, Building, BuildingTypeId, ResType, SimEvent, UnitTypeId
@@ -16,6 +16,8 @@ import type { World } from '../sim/world';
 import type { GameView } from '../render/view';
 import { bindFullscreenButton, fullscreenSupported } from './fullscreen';
 import { icon } from './icons';
+import { previewAdjacency } from '../sim/districts';
+import { openCityPanel } from './citypanel';
 import { openTechTree } from './techtree';
 import type { InputController } from './input';
 import type { Minimap } from './minimap';
@@ -65,6 +67,33 @@ function outpostStatus(w: World, b: Building): string {
   return `${held} — stand in it with no enemy present to claim it`;
 }
 
+/** A free village's line: who they pay, and what it would take to change that. */
+function villageStatus(w: World, b: Building): string {
+  const site = w.sites.find(s => (s.hutIds ?? []).includes(b.id));
+  if (!site) return BUILDINGS.hut.desc;
+  const name = site.name ?? 'This village';
+  if (site.holder === 0) return `${name} is your tributary — their gold comes in steadily`;
+  if (site.holder === 1) return `${name} pays the rival. Court them yourself, or take it by force`;
+  if (site.taxedBy === 0) return `${name} pays you at spear-point — and stops when your spears leave`;
+  if (site.taxedBy === 1) return `${name} is held at spear-point by the rival`;
+  if (w.sacker[0]) return `${name} has heard what you did to the last village. They will not treat with you`;
+  return `${name} is free. Stand here with ${ENC.courtFood} food to court them, or ${ENC.taxSoldiers} soldiers to tax them`;
+}
+
+/** A claimable landmark's line: who holds it and what it is worth. */
+function landmarkStatus(w: World, b: Building): string {
+  const site = w.sites.find(s => s.buildingId === b.id);
+  const held = b.owner === 0 ? 'Yours' : b.owner === 1 ? 'Held by the rival' : 'Unclaimed';
+  const worth = b.type === 'beacon'
+    ? 'every unit of the holder sees further'
+    : 'the holder\'s wounded mend anywhere on the map';
+  if (site && site.capture > 0) {
+    const who = site.claimant === 0 ? 'You are claiming it' : 'The rival is claiming it';
+    return `${held} — ${who}, ${Math.floor(site.capture * 100)}%`;
+  }
+  return `${held} — while it stands claimed, ${worth}`;
+}
+
 /** Cost line: small resource icons followed by their amounts. */
 function costHtml(c: Cost, size = 13): string {
   const parts: string[] = [];
@@ -92,10 +121,12 @@ export class HUD {
   private sideRail!: HTMLElement;
   private menuModal: HTMLElement | null = null;
   private techTree: HTMLElement | null = null;
+  private cityPanel: HTMLElement | null = null;
   private unbindFullscreen: (() => void) | null = null;
   private resEls: Record<string, HTMLElement> = {};
   private objectives: Objective[] = [];
   private panelSig = '';
+  private adjSig = '';
   private actionsSig = '';
   private buildSig = '';
   private refreshT = 0;
@@ -188,6 +219,11 @@ export class HUD {
     homeBtn.title = 'Go to Town Center';
     homeBtn.onclick = () => { this.sound.button(); this.input.centerOnTC(); };
 
+    const cityBtn = this.el('button', '', side);
+    cityBtn.innerHTML = icon('city', 24);
+    cityBtn.title = 'Your city: income, labour and what you know of the rival';
+    cityBtn.onclick = () => { this.sound.button(); this.openCityPanel(); };
+
     // ---- panels
     this.selpanel = this.el('div', 'selpanel', this.root);
     this.actionsEl = this.el('div', 'actions', this.root);
@@ -216,7 +252,7 @@ export class HUD {
       { id: 'vils', label: 'Train villagers', target: 6, done: false, progress: () => unitCount(t => t === 'villager') },
       { id: 'hamlet', label: 'Grow into a Hamlet', target: 1, done: false, progress: () => (p.level >= 1 ? 1 : 0) },
       { id: 'barracks', label: 'Build a Barracks', target: 1, done: false, progress: () => count(b => (b.type === 'barracks' || b.type === 'range') && b.built) },
-      { id: 'army', label: 'Train soldiers', target: 6, done: false, progress: () => unitCount(t => t !== 'villager' && t !== 'boat') },
+      { id: 'army', label: 'Train soldiers', target: 6, done: false, progress: () => unitCount(t => t !== 'villager' && t !== 'boat' && t !== 'scout') },
       { id: 'town', label: 'Grow into a Town', target: 1, done: false, progress: () => (p.level >= 3 ? 1 : 0) },
       { id: 'win', label: 'Raze their town — or raise a Wonder', target: 1, done: false, progress: () => 0 }
     ];
@@ -323,10 +359,13 @@ export class HUD {
       const bt = this.input.placeType;
       const name = BUILDINGS[bt].name;
       this.placeHint.classList.add('visible');
-      if (bt === 'wall') {
-        this.placeHint.innerHTML = `<span>Raising <b>${name}s</b> — tap ground for each segment</span>`;
+      if (bt === 'wall' || bt === 'causeway') {
+        const what = bt === 'wall' ? 'segment' : 'stone';
+        this.placeHint.innerHTML =
+          `<span>Laying <b>${name}${bt === 'wall' ? 's' : ''}</b> — tap ground for each ${what}</span>`;
       } else {
-        this.placeHint.innerHTML = `<span>Placing <b>${name}</b> — tap to move it</span>`;
+        this.placeHint.innerHTML =
+          `<span>Placing <b>${name}</b> — tap to move it</span><span class="adj" data-adj></span>`;
         const rotate = document.createElement('button');
         rotate.innerHTML = `${icon('rotate', 13)}Rotate`;
         rotate.onclick = () => this.input.rotatePlacement();
@@ -345,6 +384,25 @@ export class HUD {
     } else {
       this.placeHint.classList.remove('visible');
     }
+    this.adjSig = '';
+    this.updateAdjHint();
+  }
+
+  /**
+   * What the ghost would gain standing here. Recomputed only when it moves —
+   * an adjacency system nobody can see before they commit is not a system.
+   */
+  private updateAdjHint() {
+    if (this.input.mode !== 'place' || !this.input.placeType) return;
+    const g = this.view.ghost;
+    const slot = this.placeHint.querySelector('[data-adj]') as HTMLElement | null;
+    if (!slot) return;
+    const sig = g ? `${this.input.placeType}|${g.cx}|${g.cz}` : '';
+    if (sig === this.adjSig) return;
+    this.adjSig = sig;
+    const txt = g ? previewAdjacency(this.world, 0, this.input.placeType, g.cx, g.cz) : '';
+    slot.textContent = txt;
+    slot.classList.toggle('on', !!txt);
   }
 
   private renderPanel() {
@@ -382,11 +440,17 @@ export class HUD {
       const u = units[0]!;
       const def = UNITS[u.type];
       const s = w.unitStats(u.owner, u.type);
+      // rank is carried by the unit, not the type, so fold it in for display
+      if (u.rank) s.speed *= 1 + u.rank * SCOUT.speedPerRank;
       const tag = u.owner === WILDS ? ' <span class="foe wild">wilds</span>'
         : u.owner !== 0 ? ' <span class="foe">enemy</span>' : '';
       const carryTxt = u.carryAmt > 0.5 && u.carryKind
         ? `<span class="carry">${icon(RES_OF_NODE[u.carryKind], 12)}${Math.floor(u.carryAmt)}</span>` : '';
       const status = u.relic ? 'Carrying the Idol' : u.hold ? 'Holding' : taskLabel(u.task.type);
+      const rankTxt = u.type === 'scout' && u.rank
+        ? `<div class="counters" title="Sites found. Each one widens the eye and quickens the step.">
+            <span class="ck">Pathfinder</span> rank ${u.rank}${u.rank >= SCOUT.maxRank ? ' — as far as it goes' : ''}</div>`
+        : '';
       html += `<div class="portrait">${thumbImg(unitThumb(u.type, w.players[u.owner].faction), 'pthumb')}</div>
         <div class="info">
           <div class="name">${def.name}${tag}
@@ -398,7 +462,7 @@ export class HUD {
             <span title="Speed">${icon('statSpd', 12)}<b>${s.speed.toFixed(1)}</b></span>
             ${carryTxt}
           </div>
-          ${counterHtml(u.type)}
+          ${counterHtml(u.type)}${rankTxt}
           <div class="hpbar"><div data-hp style="width:${(u.hp / u.maxHp) * 100}%"></div>
             <span class="hptext" data-hptext>${Math.ceil(u.hp)}/${u.maxHp}</span></div>
         </div>`;
@@ -411,6 +475,8 @@ export class HUD {
       if (!bld.built) sub = `Under construction — <span data-prog>${Math.floor(bld.progress * 100)}%</span>`;
       else if (def.farm) sub = bld.withered ? 'Withered — needs wood to reseed' : `${Math.floor(bld.farmFood)} food remaining`;
       else if (bld.type === 'outpost') sub = outpostStatus(w, bld);
+      else if (bld.type === 'hut') sub = villageStatus(w, bld);
+      else if (bld.type === 'beacon' || bld.type === 'menhir') sub = landmarkStatus(w, bld);
       else if (def.trains && !enemy) sub = 'Tap the ground to set a rally point';
       html += `<div class="portrait">${thumbImg(buildingThumb(bld.type, w.players[bld.owner].faction, w.players[bld.owner].level), 'pthumb')}</div>
         <div class="info">
@@ -517,12 +583,14 @@ export class HUD {
     const mil = this.input.ownMilitaryIds();
     const workers = this.input.ownUnits().filter(u => u.type === 'villager' || u.type === 'boat');
     const carts = this.input.ownUnits().filter(u => u.type === 'tradecart');
+    const scouts = this.input.ownUnits().filter(u => u.type === 'scout');
     const bld = sel.length === 1 ? w.buildings.get(sel[0]) : undefined;
     const ownBld = bld && bld.owner === 0 ? bld : undefined;
     const holdOn = this.input.holdActive();
 
     const sig = [
       vils.length > 0, mil.length > 0, workers.length > 0, carts.length > 0, holdOn,
+      scouts.length > 0 ? scouts.map(u => u.task.type).join(',') : '',
       ownBld ? ownBld.id + ownBld.type + (ownBld.built ? 'b' : 'c') : '',
       this.input.mode, p.techs.size, p.level, p.laborOn
     ].join('|');
@@ -554,13 +622,29 @@ export class HUD {
     if (workers.length > 0) {
       addBtn(icon('gather', 22), 'Gather', { onClick: () => this.input.gatherSelected() });
     }
+    if (scouts.length > 0) {
+      const exploring = scouts.every(u => u.task.type === 'explore');
+      addBtn(icon('explore', 22), 'Explore', {
+        cls: exploring ? 'toggled' : 'primary',
+        onClick: () => {
+          if (this.input.exploreSelected()) {
+            this.toast('The scout walks the frontier', '');
+          } else {
+            this.sound.error();
+          }
+          this.refreshSelectionUI();
+        }
+      });
+    }
     if (mil.length > 0) {
       addBtn(icon('attack', 22), 'Attack', {
         cls: this.input.mode === 'attackmove' ? 'toggled' : 'primary',
         onClick: () => { this.sound.button(); this.input.toggleAttackMove(); this.refreshSelectionUI(); }
       });
     }
-    if (vils.length > 0 || mil.length > 0) {
+    // Stop calls anyone off what they are doing — including a scout out on the
+    // frontier. Hold is a soldier's order and shows for soldiers alone.
+    if (vils.length > 0 || mil.length > 0 || scouts.length > 0) {
       addBtn(icon('stop', 22), 'Stop', { onClick: () => { this.input.stopSelected(); this.refreshSelectionUI(); } });
     }
     if (mil.length > 0) {
@@ -761,22 +845,54 @@ export class HUD {
     if (this.boonsEl.innerHTML !== html) this.boonsEl.innerHTML = html;
   }
 
-  /** The deserters' offer: shown while your units stand at an unprovoked camp. */
+  /**
+   * What the people you are standing among will offer you: the deserters'
+   * spears for gold, or a free village's allegiance for food. One banner, one
+   * decision, and it only ever appears while your own units are there.
+   */
   private updateOffer() {
     const w = this.world;
-    let offer: { siteId: number; count: number } | null = null;
-    for (const site of w.sites) {
-      if (site.kind !== 'camp' || site.state === 'cleared' || site.provokedBy === 0) continue;
-      if (site.unitIds.length === 0) continue;
-      let near = false;
+    const p = w.players[0];
+    const nearMine = (x: number, z: number, r: number) => {
       for (const u of w.units.values()) {
-        if (u.owner === 0 && !u.water &&
-            (u.x - site.x) ** 2 + (u.z - site.z) ** 2 < (ENC.offerR + 1) ** 2) { near = true; break; }
+        if (u.owner === 0 && !u.water && (u.x - x) ** 2 + (u.z - z) ** 2 < r * r) return true;
       }
-      if (near) { offer = { siteId: site.id, count: site.unitIds.length }; break; }
+      return false;
+    };
+
+    let offer: {
+      kind: 'merc' | 'court'; siteId: number; art: string;
+      msg: string; label: string; afford: boolean;
+    } | null = null;
+
+    for (const site of w.sites) {
+      if (site.state === 'cleared') continue;
+      if (site.kind === 'camp' && site.provokedBy !== 0 && site.unitIds.length > 0 &&
+          nearMine(site.x, site.z, ENC.offerR + 1)) {
+        offer = {
+          kind: 'merc', siteId: site.id, art: icon('gold', 15),
+          msg: 'Deserters offer their spears',
+          label: `Hire ${site.unitIds.length} — ${ENC.mercPrice} gold`,
+          afford: p.res.gold >= ENC.mercPrice
+        };
+        break;
+      }
+      if (site.kind === 'village' && site.holder !== 0 && !w.sacker[0] &&
+          nearMine(site.x, site.z, ENC.villageR)) {
+        const name = site.name ?? 'The village';
+        offer = {
+          kind: 'court', siteId: site.id, art: icon('court', 15),
+          msg: site.holder === 1
+            ? `${name} pays the rival — outbid them`
+            : `${name} will hear you out`,
+          label: `Court them — ${ENC.courtFood} food`,
+          afford: p.res.food >= ENC.courtFood
+        };
+        break;
+      }
     }
-    const afford = w.players[0].res.gold >= ENC.mercPrice;
-    const sig = offer ? `${offer.siteId}|${offer.count}|${afford}` : '';
+
+    const sig = offer ? `${offer.kind}|${offer.siteId}|${offer.label}|${offer.afford}` : '';
     if (sig === this.offerSig) return;
     this.offerSig = sig;
     if (!offer) {
@@ -785,16 +901,12 @@ export class HUD {
     }
     this.offerEl.classList.add('visible');
     this.offerEl.innerHTML =
-      `<span>${icon('gold', 15)} Deserters offer their spears</span>
-       <button class="hire" ${afford ? '' : 'disabled'}>
-         Hire ${offer.count} — ${ENC.mercPrice} gold</button>`;
-    const siteId = offer.siteId;
+      `<span>${offer.art} ${offer.msg}</span>
+       <button class="hire" ${offer.afford ? '' : 'disabled'}>${offer.label}</button>`;
+    const { kind, siteId } = offer;
     (this.offerEl.querySelector('.hire') as HTMLButtonElement).onclick = () => {
-      if (this.world.hireMercs(siteId)) {
-        this.sound.research();
-      } else {
-        this.sound.error();
-      }
+      const ok = kind === 'merc' ? this.world.hireMercs(siteId) : this.world.courtVillage(siteId, 0);
+      if (ok) this.sound.research(); else this.sound.error();
       this.offerSig = '';
     };
   }
@@ -815,6 +927,12 @@ export class HUD {
     const w = this.world;
     for (const e of events) {
       switch (e.t) {
+        case 'festival':
+          if (e.owner === 0) {
+            this.toast(`${SETTLEMENTS[e.level].name} — the city holds a festival`, 'good');
+            this.sound.festival();
+          }
+          break;
         case 'toast':
           if (e.owner === 0) {
             this.toast(e.msg, e.kind ?? 'warn');
@@ -861,15 +979,24 @@ export class HUD {
           this.minimap().ping(e.x, e.z, e.color);
           break;
         case 'siteDiscovered': {
+          const landmarks = [
+            'Beacon Hill stands here — claim it and the country is yours to see',
+            'The Obelisk of the Lost — hold it and your wounded mend anywhere',
+            'An Amber Grove — ancient trees, four times the timber, and they never come back',
+            'The Oracle Spring — send a villager to drink and learn what the rival is building'
+          ];
           const msg: Record<string, string> = {
             herd: e.variant === 1 ? 'Wild boar root in the thickets' : 'A herd of gazelle grazes nearby',
             den: 'A wolf den — its pack hunts these lands',
             camp: 'Deserters are camped here — swords for hire',
             cache: 'An old cairn — a villager could dig beneath it',
             refugees: 'Refugees hide here — lead them to your Town Center',
-            relic: 'The Golden Idol! Carry it home to your Town Center'
+            relic: 'The Golden Idol! Carry it home to your Town Center',
+            outpost: 'A ruined fort — stand in its yard to claim it',
+            village: 'A free people live here. Court them, tax them, or leave them be',
+            landmark: landmarks[e.variant] ?? 'Something older than any of this stands here'
           };
-          this.toast(msg[e.kind], e.kind === 'den' ? 'warn' : 'good');
+          this.toast(msg[e.kind] ?? 'Something stands out there', e.kind === 'den' ? 'warn' : 'good');
           this.minimap().ping(e.x, e.z, '#f0c05a');
           break;
         }
@@ -919,6 +1046,18 @@ export class HUD {
     overlay.addEventListener('click', e => { if (e.target === overlay) this.closeMenu(); });
     this.root.appendChild(overlay);
     this.menuModal = overlay;
+  }
+
+  /** The city panel, opened from the right rail. Pauses while it is up. */
+  private openCityPanel() {
+    if (this.cityPanel) return;
+    this.cb.setPaused(true);
+    this.cityPanel = openCityPanel(
+      this.world,
+      ids => { this.input.select(ids); this.sound.select(); },
+      () => { this.cityPanel = null; this.cb.setPaused(false); }
+    );
+    this.root.appendChild(this.cityPanel);
   }
 
   /** The tech tree screen, opened from the settlement chip. Pauses while it is up. */
@@ -988,6 +1127,7 @@ export class HUD {
 
 function taskLabel(t: string): string {
   switch (t) {
+    case 'explore': return 'Exploring';
     case 'gather': return 'Gathering';
     case 'farm': return 'Farming';
     case 'build': return 'Building';

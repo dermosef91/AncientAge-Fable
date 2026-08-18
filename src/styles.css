@@ -447,6 +447,16 @@ img.thumb, img.bthumb, img.pthumb, img.chip-thumb, img.qthumb, img.act-thumb, im
 }
 #place-hint.visible { display: flex; }
 #place-hint button { border-radius: 14px; padding: 4px 12px; font-size: 12px; }
+/* what this spot is worth: only shown when the ground actually offers something */
+#place-hint .adj {
+  display: none;
+  color: var(--green);
+  font-size: 11.5px;
+  font-weight: 600;
+  padding-left: 10px;
+  border-left: 1px solid var(--border);
+}
+#place-hint .adj.on { display: inline; }
 
 /* ---------------- toasts ---------------- */
 #toasts {
@@ -974,6 +984,113 @@ img.thumb, img.bthumb, img.pthumb, img.chip-thumb, img.qthumb, img.act-thumb, im
 #selpanel .name .foe.wild {
   color: #d9c493;
   border-color: rgba(217, 196, 147, 0.5);
+}
+
+/* ---------------------------------------------------------------- city panel */
+.overlay.citypanel { align-items: stretch; justify-content: stretch; padding: 0; }
+.cp-panel {
+  flex: 1;
+  display: flex; flex-direction: column;
+  margin: calc(10px + var(--sat)) calc(10px + var(--sar)) calc(10px + var(--sab)) calc(10px + var(--sal));
+  background: linear-gradient(170deg, #2e2313, #1a1208);
+  border: 1px solid var(--border-strong);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.cp-title {
+  position: relative;
+  padding: 12px 52px 10px 18px;
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+.cp-title h2 { font-size: 18px; letter-spacing: 0.6px; color: var(--gold); }
+.cp-title p { font-size: 11.5px; color: var(--text-dim); margin-top: 2px; }
+.cp-close {
+  position: absolute; top: 10px; right: 12px;
+  width: 32px; height: 32px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  cursor: pointer;
+}
+.cp-close:hover { border-color: var(--border-strong); }
+.cp-cols {
+  flex: 1;
+  display: flex;
+  gap: 10px;
+  padding: 10px;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.cp-col {
+  flex: 1 1 0;
+  min-width: 236px;
+  display: flex; flex-direction: column;
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  overflow-y: auto;
+}
+.cp-col h3 {
+  font-size: 11px; letter-spacing: 1.1px; text-transform: uppercase;
+  color: var(--gold); margin-bottom: 8px;
+}
+.cp-col h3 + * { margin-bottom: 12px; }
+.cp-inc {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-areas: "head rate" "spark spark" "have have";
+  align-items: center;
+  gap: 2px 8px;
+  padding: 7px 0;
+  border-bottom: 1px solid rgba(233, 205, 148, 0.12);
+}
+.cp-inc:last-child { border-bottom: none; }
+.cp-inc-head { grid-area: head; display: flex; align-items: center; gap: 6px; font-size: 12.5px; }
+.cp-rate { grid-area: rate; text-align: right; font-size: 14px; font-weight: 700; color: var(--text); }
+.cp-rate i { font-size: 10px; font-weight: 400; color: var(--text-dim); font-style: normal; }
+.cp-spark { grid-area: spark; width: 100%; height: 22px; opacity: 0.85; }
+.cp-have { grid-area: have; font-size: 10.5px; color: var(--text-dim); }
+.cp-jobs { display: flex; flex-direction: column; gap: 4px; }
+.cp-job {
+  display: flex; align-items: center; gap: 10px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 7px 10px;
+  color: var(--text);
+  font-size: 12.5px;
+  cursor: pointer;
+  text-align: left;
+}
+.cp-job:hover:not(:disabled) { border-color: var(--border-strong); }
+.cp-job:disabled, .cp-job.empty { opacity: 0.4; cursor: default; }
+.cp-job.idle .cp-job-n { color: var(--red); }
+.cp-job-n { min-width: 26px; font-size: 16px; font-weight: 700; color: var(--gold); }
+.cp-job-l { flex: 1; }
+.cp-districts { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.cp-districts li {
+  font-size: 12px; line-height: 1.45; color: var(--text-dim);
+  padding-left: 12px; position: relative;
+}
+.cp-districts li::before {
+  content: ''; position: absolute; left: 0; top: 7px;
+  width: 5px; height: 5px; border-radius: 50%; background: var(--gold);
+}
+.cp-districts li b { color: var(--text); }
+.cp-rival p { font-size: 12px; line-height: 1.5; color: var(--text-dim); margin-bottom: 6px; }
+.cp-rival b { color: var(--text); }
+.cp-warn { color: #e8c15a !important; }
+.cp-note { font-size: 10.5px; color: var(--text-dim); opacity: 0.75; margin-top: 6px; }
+
+@media (max-width: 720px) {
+  .cp-col { min-width: 208px; padding: 8px 10px; }
+  .cp-title { padding: 9px 46px 8px 12px; }
+  .cp-title h2 { font-size: 16px; }
 }
 
 /* ---------------------------------------------------------------- tech tree */

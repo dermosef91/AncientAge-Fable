@@ -20,6 +20,11 @@ import type { World } from './world';
 
 export type CivicKind = 'path' | 'road' | 'garden' | 'plaza' | 'statue';
 
+/** What each kind writes into `World.civicKindAt`. 0 = bare ground. */
+export const SURFACE: Record<CivicKind, number> = {
+  path: 1, road: 2, garden: 3, plaza: 4, statue: 5
+};
+
 /** One piece of civic scenery: a stretch of street, or an ornament by a building. */
 export interface CivicProp {
   id: number;
@@ -108,9 +113,54 @@ function paveOverPaths(world: World, owner: number) {
   for (const p of world.civic) {
     if (p.owner !== owner || p.kind !== 'path') continue;
     p.kind = 'road';
+    markSurface(world, p);
     paved++;
   }
   if (paved > 0) world.civicRev++;
+}
+
+/**
+ * A player laying stone of their own, out where the settlement would never
+ * have run a street. Same scenery, same rules — it simply goes where it is put.
+ */
+export function layCauseway(world: World, owner: number, cx: number, cz: number) {
+  seedCivic(world);
+  const i = cz * MAP_W + cx;
+  // an existing dirt path is upgraded in place rather than stacked on
+  const old = world.civicAt[i];
+  if (old > 0) {
+    const prop = world.civic.find(p => p.id === old);
+    if (prop && prop.kind === 'path') {
+      prop.kind = 'road';
+      prop.owner = owner;
+      markSurface(world, prop);
+      world.civicRev++;
+      return;
+    }
+    if (prop) return; // an ornament stands here; leave it alone
+  }
+  if (old === -1) return; // the founding plaza is already stone
+  addProp(world, {
+    kind: 'road', owner, faction: world.players[owner].faction, bId: 0,
+    cx, cz, size: 1, x: cx + 0.5, z: cz + 0.5, rot: 0,
+    variant: (cx * 7 + cz * 13) % 3 === 0 ? 1 : 0
+  });
+}
+
+/**
+ * Keep the per-cell surface index in step with a prop's kind. Streets carry
+ * traffic (see `World.speedMulAt`); greenery and paving are what makes a house
+ * worth living beside (see districts.ts). Both want a cell lookup rather than
+ * a walk of the whole civic array, which runs into the thousands in a big city.
+ */
+function markSurface(world: World, p: CivicProp) {
+  const v = SURFACE[p.kind];
+  for (let z = p.cz; z < p.cz + p.size; z++) {
+    for (let x = p.cx; x < p.cx + p.size; x++) {
+      if (x < 0 || z < 0 || x >= MAP_W || z >= MAP_H) continue;
+      world.civicKindAt[z * MAP_W + x] = v;
+    }
+  }
 }
 
 /** A foundation is being laid here — sweep away whatever scenery it covers. */
@@ -120,7 +170,9 @@ export function clearCivicUnder(world: World, cx: number, cz: number, size: numb
   for (let z = cz; z < cz + size; z++) {
     for (let x = cx; x < cx + size; x++) {
       if (x < 0 || z < 0 || x >= MAP_W || z >= MAP_H) continue;
-      const id = world.civicAt[z * MAP_W + x];
+      const ci = z * MAP_W + x;
+      const id = world.civicAt[ci];
+      world.civicKindAt[ci] = 0;
       if (id > 0) hit.add(id);
     }
   }
@@ -316,6 +368,7 @@ function addProp(world: World, p: Omit<CivicProp, 'id'>): CivicProp {
       world.civicAt[z * MAP_W + x] = prop.id;
     }
   }
+  markSurface(world, prop);
   world.civicRev++;
   return prop;
 }
@@ -332,5 +385,6 @@ function seedCivic(world: World) {
     const cx = Math.floor(d.x), cz = Math.floor(d.z);
     if (cx < 0 || cz < 0 || cx >= MAP_W || cz >= MAP_H) continue;
     world.civicAt[cz * MAP_W + cx] = -1;
+    world.civicKindAt[cz * MAP_W + cx] = 2;  // the founding plaza is laid stone
   }
 }

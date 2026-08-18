@@ -289,6 +289,80 @@ function carcass(p: Parts, variant: number) {
   p.box(W.meat, 0.16, 0.06, 0.2, -0.14, 0.05, -0.1, { shade: 0.9 });
 }
 
+// ------------------------------------------------------- free peoples
+function hut(p: Parts) {
+  // a free people's home: turf roof over daub walls, a woodpile, a drying rack.
+  // Deliberately humbler than anything a player raises — these are not a faction.
+  p.cyl(0x8a7a5e, 0.9, 0.98, 0.06, 0, 0.03, 0, { seg: 8, shade: 0.94 });
+  p.box(0xcbb894, 0.9, 0.5, 0.86, 0, 0.28, 0, { shade: 1.02 });
+  p.box(W.woodDark, 0.94, 0.05, 0.9, 0, 0.53, 0, { shade: 0.92 });
+  p.cone(0x6f7a44, 0.86, 0.52, 0, 0.8, 0, { seg: 6, shade: 0.98 });   // turf cap
+  p.cone(0x5f6b3c, 0.5, 0.22, 0, 1.04, 0, { seg: 6, shade: 1.05 });
+  p.box(W.cave, 0.28, 0.34, 0.05, 0, 0.2, 0.44);                      // doorway
+  p.cyl(W.woodDark, 0.02, 0.024, 0.5, 0.36, 0.25, 0.5, { seg: 4 });   // door post
+  // woodpile and a drying rack of hides
+  p.cyl(W.wood, 0.05, 0.05, 0.36, -0.62, 0.06, 0.42, { seg: 5, rz: Math.PI / 2, ry: 0.3 });
+  p.cyl(W.wood, 0.05, 0.05, 0.36, -0.62, 0.16, 0.42, { seg: 5, rz: Math.PI / 2, ry: 0.5 });
+  p.cyl(W.woodDark, 0.02, 0.022, 0.46, 0.6, 0.23, -0.4, { seg: 4 });
+  p.cyl(W.woodDark, 0.02, 0.022, 0.46, 0.24, 0.23, -0.4, { seg: 4 });
+  p.box(0xb08a5e, 0.34, 0.22, 0.03, 0.42, 0.33, -0.4, { shade: 0.96 });
+}
+
+// ------------------------------------------------------- the landmark
+function beacon(p: Parts) {
+  // a cairn-topped hill crowned with a fire basket: the map's highest ground
+  p.cyl(0x8a7a5e, 1.15, 1.35, 0.28, 0, 0.14, 0, { seg: 9, shade: 0.93 });
+  p.cyl(W.rock, 0.85, 1.05, 0.34, 0, 0.42, 0, { seg: 8, shade: 0.98 });
+  p.cyl(W.rockDark, 0.62, 0.8, 0.3, 0, 0.72, 0, { seg: 8 });
+  // four legs into an iron basket
+  for (let i = 0; i < 4; i++) {
+    const a = i * (Math.PI / 2) + 0.4;
+    p.cyl(W.iron, 0.035, 0.045, 1.15, Math.cos(a) * 0.3, 1.42, Math.sin(a) * 0.3,
+      { seg: 4, rx: Math.sin(a) * 0.2, rz: -Math.cos(a) * 0.2 });
+  }
+  p.cyl(W.iron, 0.44, 0.3, 0.34, 0, 2.1, 0, { seg: 9, shade: 0.95 });
+  p.torus(W.iron, 0.44, 0.035, Math.PI * 2, 0, 2.26, 0, { rx: Math.PI / 2 });
+  // logs and a standing flame — the fire is the whole point of the thing
+  p.cyl(W.char, 0.05, 0.05, 0.5, 0, 2.2, 0, { seg: 4, rz: Math.PI / 2, ry: 0.4 });
+  p.cyl(W.char, 0.045, 0.045, 0.46, 0, 2.26, 0, { seg: 4, rz: Math.PI / 2, ry: 1.9 });
+  p.cone(W.ember, 0.26, 0.5, 0, 2.5, 0, { seg: 6 });
+  p.cone(W.flame, 0.15, 0.36, 0.04, 2.72, -0.03, { seg: 5, shade: 1.1 });
+  p.cone(0xf6d27a, 0.07, 0.2, -0.03, 2.92, 0.02, { seg: 4, shade: 1.15 });
+}
+
+function obelisk(p: Parts) {
+  // a tapering stone raised over a lost army, carved and weather-worn
+  p.cyl(W.plinthDark, 0.5, 0.56, 0.12, 0, 0.06, 0, { seg: 8, shade: 0.94 });
+  p.box(W.plinth, 0.46, 0.18, 0.46, 0, 0.21, 0);
+  p.box(W.plinthDark, 0.34, 1.6, 0.34, 0, 1.1, 0, { shade: 1.02 });
+  p.box(W.plinth, 0.22, 0.5, 0.22, 0, 2.12, 0, { shade: 1.05 });
+  p.cone(W.goldBright, 0.16, 0.3, 0, 2.5, 0, { seg: 4 });
+  // carved bands, and the offerings left at its foot
+  for (const y of [0.55, 1.05, 1.55]) {
+    p.box(W.gold, 0.36, 0.045, 0.36, 0, y, 0, { shade: 0.96 });
+  }
+  p.ico(W.rock, 0.13, 0.44, 0.06, 0.36, { ry: 0.6, shade: 0.95 });
+  p.ico(W.rockDark, 0.1, -0.42, 0.05, 0.3, { ry: 1.8 });
+  p.sphere(W.moss, 0.05, -0.3, 0.06, -0.36, { seg: 4, sy: 0.6 });
+}
+
+function spring(p: Parts) {
+  // a stone-ringed pool with a leaning oracle stone; the water is the draw
+  p.cyl(0x6f7a44, 1.0, 1.1, 0.06, 0, 0.03, 0, { seg: 9, shade: 0.95 });
+  for (let i = 0; i < 10; i++) {
+    const a = (i / 10) * Math.PI * 2;
+    p.ico(W.rock, 0.13, Math.cos(a) * 0.62, 0.08, Math.sin(a) * 0.62,
+      { ry: i * 0.7, shade: 0.9 + (i % 3) * 0.07 });
+  }
+  p.cyl(0x3f7f8c, 0.55, 0.55, 0.07, 0, 0.07, 0, { seg: 12, shade: 1.08 });
+  p.cyl(0x5fa3ad, 0.3, 0.3, 0.075, 0, 0.078, 0, { seg: 10, shade: 1.14 });
+  // the oracle stone, leaning over the water, and a votive bowl
+  p.box(W.plinth, 0.3, 1.0, 0.22, -0.5, 0.5, -0.5, { rz: 0.22, rx: -0.1 });
+  p.box(W.plinthDark, 0.2, 0.05, 0.16, -0.5, 0.98, -0.5, { rz: 0.22 });
+  p.cyl(W.gold, 0.1, 0.08, 0.07, 0.55, 0.13, -0.45, { seg: 8, shade: 1.05 });
+  p.cone(0x8f9257, 0.05, 0.2, 0.75, 0.12, 0.3, { seg: 4, shade: 0.95 });
+}
+
 // ---------------------------------------------------------------- dispatch
 /** Unit models for the wilds. Returns true if the type was handled. */
 export function wildsUnit(p: Parts, type: string): boolean {
@@ -310,6 +384,10 @@ export function wildsBuilding(p: Parts, type: string): boolean {
     case 'cairn': cairn(p); return true;
     case 'pedestal': pedestal(p); return true;
     case 'outpost': outpost(p); return true;
+    case 'hut': hut(p); return true;
+    case 'beacon': beacon(p); return true;
+    case 'menhir': obelisk(p); return true;   // the Obelisk of the Lost
+    case 'spring': spring(p); return true;
   }
   return false;
 }

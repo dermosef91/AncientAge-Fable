@@ -221,6 +221,7 @@ export function buildingGeo(type: BuildingTypeId, faction: Faction, tier = 0): T
       case 'statue': statueB(p, s, faction); break;
       case 'garden': gardenB(p, s, faction); break;
       case 'plaza': plazaB(p, s, faction); break;
+      case 'causeway': causewayB(p, s, faction); break;
       case 'lighthouse': lighthouseB(p, s, faction); break;
       case 'forum': forumB(p, s, faction); break;
       case 'wonder': wonderB(p, s, faction); break;
@@ -243,8 +244,8 @@ export function buildingGeo(type: BuildingTypeId, faction: Faction, tier = 0): T
 
 /** Flat, already-ornamental or wilds types skip the generic status dressing. */
 const NO_DRESS = new Set<BuildingTypeId>([
-  'wall', 'farm', 'plaza', 'garden', 'statue', 'obelisk',
-  'den', 'camp', 'cairn', 'pedestal', 'outpost'
+  'wall', 'farm', 'plaza', 'garden', 'statue', 'causeway', 'obelisk',
+  'den', 'camp', 'cairn', 'pedestal', 'outpost', 'hut', 'beacon', 'menhir', 'spring'
 ]);
 
 /**
@@ -302,8 +303,10 @@ export const BUILDING_VIS_HEIGHT: Record<BuildingTypeId, number> = {
   range: 1.7, siegeworks: 1.9, tower: 2.9, wall: 1.4, monument: 3.2, dock: 1.5,
   market: 1.6, shrine: 1.5, temple: 2.2, amphitheater: 1.6, academy: 1.9,
   statue: 1.9, garden: 0.7, plaza: 0.2, lighthouse: 3.4, forum: 1.9, wonder: 3.6,
+  causeway: 0.2,
   obelisk: 3.3, acropolis: 3.4, castrum: 2.1,
-  den: 1.2, camp: 1.7, cairn: 0.8, pedestal: 1.3, outpost: 2.2
+  den: 1.2, camp: 1.7, cairn: 0.8, pedestal: 1.3, outpost: 2.2,
+  hut: 1.3, beacon: 3.2, menhir: 2.6, spring: 1.0
 };
 
 // ------------------------------------------------- camp-tier structures
@@ -1462,6 +1465,19 @@ function plazaB(p: Parts, s: Style, f: Faction) {
   p.cyl(PAL.gold, 0.12, 0.12, 0.08, 0, 0.042, 0, { seg: 8 });
 }
 
+/**
+ * One cell of player-laid road. It is drawn as a building only while it is a
+ * placement ghost — once laid it becomes civic scenery like any other street.
+ */
+function causewayB(p: Parts, s: Style, f: Faction) {
+  const base = f === 'rome' ? 0xb0a698 : f === 'greece' ? 0xcdc6ad : 0xcdb184;
+  const alt = f === 'rome' ? 0xa79d8f : f === 'greece' ? 0xc4bda4 : 0xc4a87b;
+  p.box(base, 0.98, 0.07, 0.98, 0, 0.035, 0);
+  p.box(alt, 0.44, 0.075, 0.44, 0.22, 0.037, -0.22, { shade: 0.99 });
+  p.box(alt, 0.44, 0.075, 0.44, -0.22, 0.037, 0.22, { shade: 1.01 });
+  p.box(s.trim, 0.98, 0.02, 0.1, 0, 0.075, 0, { shade: 0.97 });
+}
+
 function lighthouseB(p: Parts, s: Style, f: Faction) {
   p.box(PAL.sandLight, 1.85, 0.16, 1.85, 0, 0.08, 0);
   // pharos tiers with masonry rings
@@ -1941,6 +1957,23 @@ export function unitGeo(type: UnitTypeId, faction: Faction, crewed = false): THR
           p.box(0x3c2e20, 0.2, 0.06, 0.2, 0, 0.8, 0);
         }
         break;
+      case 'scout':
+        // travelling light: short cloak, sun hat, waterskin, a staff and a horn.
+        // Nothing on this figure is armour, which is the point of it.
+        humanoid(p, { skin, tunic: 0xc9b58c, tunicTrim: st.accent, scale: 0.97 });
+        p.cone(0xb9a377, 0.19, 0.07, 0, 0.79, 0, { seg: 8, shade: 1.04 });      // wide brim
+        p.box(st.accent, 0.26, 0.24, 0.04, 0, 0.5, -0.11, { shade: 0.95 });     // short cloak
+        p.cyl(PAL.woodDark, 0.014, 0.016, 0.72, 0.19, 0.36, 0.06, { seg: 4, rx: 0.1 });
+        p.sphere(0x8a6f4a, 0.06, -0.16, 0.42, -0.08, { seg: 5, sy: 1.2 });      // waterskin
+        p.torus(0xd8cfb8, 0.055, 0.018, Math.PI * 1.4, 0.1, 0.52, -0.12, { rx: 1.1 }); // horn
+        break;
+      case 'slinger':
+        // a herdsman fighting for his own valley: no armour, a leather sling
+        humanoid(p, { skin, tunic: 0x9a8a5e, tunicTrim: 0x6f5a3a, scale: 0.98 });
+        p.box(0x6f5a3a, 0.26, 0.05, 0.05, 0.2, 0.55, 0.02, { rz: 0.5 });        // sling cord
+        p.sphere(0x8a8378, 0.05, 0.3, 0.66, 0.02, { seg: 5 });                  // stone in the pouch
+        p.sphere(0x7a6248, 0.09, -0.17, 0.4, -0.1, { seg: 5, sy: 1.1 });        // stone bag
+        break;
       case 'spearman':
         humanoid(p, {
           skin, tunic: 0x8f6b46, tunicTrim: st.accent,
@@ -2139,9 +2172,10 @@ export function unitGeo(type: UnitTypeId, faction: Faction, crewed = false): THR
 }
 
 export const UNIT_VIS_HEIGHT: Record<UnitTypeId, number> = {
-  villager: 0.95, spearman: 1.0, archer: 1.0, chariot: 1.25, hoplite: 1.05, legionary: 1.0,
+  villager: 0.95, scout: 0.95, spearman: 1.0, archer: 1.0, chariot: 1.25,
+  hoplite: 1.05, legionary: 1.0,
   ram: 1.4, catapult: 1.35,
-  boat: 1.5, tradecart: 0.95,
+  boat: 1.5, tradecart: 0.95, slinger: 0.98,
   gazelle: 0.8, boar: 0.75, wolf: 0.7, mercenary: 1.0, refugee: 0.95
 };
 

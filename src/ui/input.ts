@@ -4,6 +4,7 @@ import { BUILDINGS, SELECT_MAX } from '../core/config';
 import type { BuildingTypeId, Unit } from '../core/types';
 import { clamp } from '../core/utils';
 import type { Sound } from '../audio/sound';
+import { landPassable } from '../sim/pathfinding';
 import type { World } from '../sim/world';
 import type { GameView } from '../render/view';
 
@@ -182,7 +183,9 @@ export class InputController {
   selectAllMilitary() {
     const ids: number[] = [];
     for (const u of this.world.units.values()) {
-      if (u.owner === 0 && u.type !== 'villager' && u.type !== 'boat') ids.push(u.id);
+      if (u.owner === 0 && u.type !== 'villager' && u.type !== 'boat' && u.type !== 'scout') {
+        ids.push(u.id);
+      }
     }
     if (ids.length) {
       this.sound.select();
@@ -224,16 +227,31 @@ export class InputController {
     return out;
   }
   ownMilitaryIds(): number[] {
-    return this.ownUnits().filter(u => u.type !== 'villager' && u.type !== 'boat').map(u => u.id);
+    return this.ownUnits()
+      .filter(u => u.type !== 'villager' && u.type !== 'boat' && u.type !== 'scout')
+      .map(u => u.id);
   }
   ownVillagerIds(): number[] {
     return this.ownUnits().filter(u => u.type === 'villager').map(u => u.id);
+  }
+  ownScoutIds(): number[] {
+    return this.ownUnits().filter(u => u.type === 'scout').map(u => u.id);
+  }
+
+  /** Send the selected scouts off to walk the frontier on their own. */
+  exploreSelected(): boolean {
+    const ids = this.ownScoutIds();
+    if (ids.length === 0) return false;
+    const ok = this.world.cmdExplore(ids);
+    if (ok) this.sound.command();
+    return ok;
   }
 
   stopSelected() {
     const w = this.world;
     for (const u of this.ownUnits()) {
       w.releaseTask(u);
+      u.exploring = false;
       u.task = { type: 'idle' };
       u.path = null;
       u.resume = null;
@@ -433,10 +451,13 @@ export class InputController {
     const g = this.hoverGround ?? this.centerGround();
     if (!g) return;
     const size = BUILDINGS[this.placeType].size;
-    const cx = Math.round(g.x - size / 2);
-    const cz = Math.round(g.z - size / 2);
-    const ok = this.world.canPlace(0, this.placeType, cx, cz).ok &&
-      this.world.canAfford(0, this.world.buildingCost(0, this.placeType));
+    const cx = this.placeType === 'causeway' ? Math.floor(g.x) : Math.round(g.x - size / 2);
+    const cz = this.placeType === 'causeway' ? Math.floor(g.z) : Math.round(g.z - size / 2);
+    const afford = this.world.canAfford(0, this.world.buildingCost(0, this.placeType));
+    // A causeway is scenery, not a building: it only asks for open ground.
+    const ok = this.placeType === 'causeway'
+      ? afford && landPassable(this.world.grid, cx, cz) && this.world.isExploredWorld(cx + 0.5, cz + 0.5)
+      : afford && this.world.canPlace(0, this.placeType, cx, cz).ok;
     this.view.ghost = { type: this.placeType, cx, cz, ok, rot: this.placeRot };
   }
 
@@ -462,6 +483,18 @@ export class InputController {
           const vils = this.ownVillagerIds();
           if (vils.length) w.cmdBuild(vils, b.id);
           this.onPlaced('wall');
+        } else {
+          this.sound.error();
+        }
+        this.updateGhost();
+        return;
+      }
+      if (this.placeType === 'causeway') {
+        // stone goes down under the feet at once — no foundation, no builder
+        const cx = Math.floor(g.x), cz = Math.floor(g.z);
+        if (w.layCauseway(0, cx, cz)) {
+          this.sound.place();
+          this.onPlaced('causeway');
         } else {
           this.sound.error();
         }
@@ -657,7 +690,7 @@ export class InputController {
       const s = this.view.worldToScreen(u.x, 0.5, u.z);
       if (s.x >= minX && s.x <= maxX && s.y >= minY && s.y <= maxY) {
         all.push(u.id);
-        if (u.type !== 'villager' && u.type !== 'boat') mil.push(u.id);
+        if (u.type !== 'villager' && u.type !== 'boat' && u.type !== 'scout') mil.push(u.id);
       }
     }
     const pick = mil.length > 0 ? mil : all;

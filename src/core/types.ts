@@ -3,10 +3,12 @@
 export type Faction = 'egypt' | 'greece' | 'rome';
 export type ResType = 'food' | 'wood' | 'stone' | 'gold';
 export type UnitTypeId =
-  | 'villager' | 'spearman' | 'archer'
+  | 'villager' | 'scout' | 'spearman' | 'archer'
   | 'chariot' | 'hoplite' | 'legionary'
   | 'ram' | 'catapult'
   | 'boat' | 'tradecart'
+  // gifted by a courted free village, never trained
+  | 'slinger'
   // the wilds (owner 2)
   | 'gazelle' | 'boar' | 'wolf' | 'mercenary' | 'refugee';
 export type BuildingTypeId =
@@ -14,10 +16,16 @@ export type BuildingTypeId =
   | 'range' | 'siegeworks' | 'tower' | 'wall' | 'monument' | 'dock'
   | 'market' | 'shrine' | 'temple' | 'amphitheater' | 'academy'
   | 'statue' | 'garden' | 'plaza' | 'lighthouse' | 'forum' | 'wonder'
+  // player-laid stone: a road piece, not a building (see sim/civic.ts)
+  | 'causeway'
   // civilization uniques
   | 'obelisk' | 'acropolis' | 'castrum'
   // encounter props (owner 2)
-  | 'den' | 'camp' | 'cairn' | 'pedestal' | 'outpost';
+  | 'den' | 'camp' | 'cairn' | 'pedestal' | 'outpost'
+  // free villages and the one landmark. The Obelisk of the Lost is a `menhir`
+  // here so it does not collide with Egypt's Obelisk above — a standing stone
+  // raised over the dead is what it is either way.
+  | 'hut' | 'beacon' | 'menhir' | 'spring';
 
 /**
  * What a target *is*, for counter bonuses. Attacks carry a table of flat
@@ -45,7 +53,21 @@ export const RES_OF_NODE: Record<NodeKind, ResType> = {
 };
 
 // ---------- Encounters ----------
-export type EncounterKind = 'herd' | 'den' | 'camp' | 'cache' | 'refugees' | 'relic' | 'outpost';
+export type EncounterKind =
+  | 'herd' | 'den' | 'camp' | 'cache' | 'refugees' | 'relic' | 'outpost'
+  | 'landmark' | 'village';
+
+/**
+ * Which landmark this map rolled. One per match, out in the deep field —
+ * the reason to walk to the far corner rather than only to the midfield.
+ */
+export type LandmarkKind = 'beacon' | 'obelisk' | 'grove' | 'spring';
+export const LANDMARK_KINDS: LandmarkKind[] = ['beacon', 'obelisk', 'grove', 'spring'];
+
+/** The prop each landmark stands as. The Amber Grove is trees, and has none. */
+export const LANDMARK_BUILDING: Record<LandmarkKind, BuildingTypeId | null> = {
+  beacon: 'beacon', obelisk: 'menhir', grove: null, spring: 'spring'
+};
 export type SiteState = 'dormant' | 'active' | 'cleared';
 
 /** One point of interest in the wilds, placed at map gen. */
@@ -68,11 +90,26 @@ export interface EncounterSite {
   capture: number;
   /** Outposts: which owner is currently making that progress. */
   claimant: number;
+  /** Landmarks: which of the four this is. */
+  landmark?: LandmarkKind;
+  /** Villages: the name their headman gives when you ask. */
+  name?: string;
+  /** Villages: an owner holding them at spear-point, -1 = nobody. */
+  taxedBy?: number;
+  /** Villages: owners who sacked one of these and will never be treated with. */
+  spurned?: number[];
+  /** Landmarks (grove): the nodes it seeded, so it can retire when they run out. */
+  nodeIds?: number[];
+  /** Bitmask of owners whose scouts have stood here — one rank each, once. */
+  seenBy?: number;
+  /** Villages: the huts that make it. Raze them all and you have sacked it. */
+  hutIds?: number[];
 }
 
 // ---------- Tasks ----------
 export type Task =
   | { type: 'idle' }
+  | { type: 'explore'; x?: number; z?: number }
   | { type: 'move'; x: number; z: number; attackMove?: boolean }
   | { type: 'gather'; nodeId: number }
   | { type: 'farm'; bId: number }
@@ -111,6 +148,14 @@ export interface Unit {
   hold: boolean;            // hold position: fight in place, never chase
   post: Vec2 | null;        // leash anchor while auto-engaging
   relic?: boolean;          // carrying the Golden Idol
+  /** Scouts: sites found, up to SCOUT.maxRank. Widens the eye, quickens the step. */
+  rank?: number;
+  /**
+   * Scouts: the Explore order is still standing. Kept across a flight from
+   * danger, so a scout that is shot at runs, waits, and then goes back to work
+   * rather than standing at home for the rest of the match.
+   */
+  exploring?: boolean;
   /** Speed multiplier from ground effects (Rome's Roads). Sampled, not per-tick. */
   speedAura: number;
 }
@@ -146,6 +191,18 @@ export interface Building {
   withered: boolean;
   workerId: number;         // farm worker (0 = none)
   trickleT: number;         // monument gold trickle accumulator
+  /** Adjacency (see sim/districts.ts): extra population this building supports. */
+  adjPop: number;
+  /** Adjacency: production speed multiplier (drill yard). */
+  adjTrain: number;
+  /** Adjacency: trade gold multiplier (exchange). */
+  adjTrade: number;
+  /** Adjacency: farm yield multiplier (field system). */
+  adjFarm: number;
+  /** Adjacency: heal range multiplier (sacred games). */
+  adjHeal: number;
+  /** Adjacency: a storehouse standing in a rich seam works as a depot. */
+  adjDepot: boolean;
 }
 
 export interface ResourceNode {
@@ -200,6 +257,7 @@ export type SimEvent =
   | { t: 'farmWither'; owner: number; id: number }
   | { t: 'upgrade'; id: number; owner: number; bType: BuildingTypeId; x: number; z: number }
   | { t: 'trade'; owner: number; gold: number; x: number; z: number }
+  | { t: 'festival'; owner: number; level: number; x: number; z: number }
   | { t: 'wonderStart'; owner: number }
   | { t: 'wonderEnd'; owner: number; destroyed: boolean }
   | { t: 'victory'; winner: number };

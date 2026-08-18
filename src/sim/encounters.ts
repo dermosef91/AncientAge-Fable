@@ -6,7 +6,7 @@
 // The Encounters class is stepped from the main loop like the AIController.
 // The exported free functions are hooks called from sim.ts combat code.
 import {
-  BOONS, ENC, isTownCenter, MAP_H, MAP_W, NODE_AMOUNT, UNITS, WILDS
+  BOONS, ENC, isTownCenter, MAP_H, MAP_W, NODE_AMOUNT, SCOUT, UNITS, WILDS
 } from '../core/config';
 import type { Building, EncounterSite, Unit } from '../core/types';
 import { clamp, dist, dist2 } from '../core/utils';
@@ -31,6 +31,7 @@ export class Encounters {
       if (site.state === 'cleared') continue;
       this.pruneMembers(site);
       this.checkDiscovery(site);
+      this.creditScouts(site);
       switch (site.kind) {
         case 'herd': this.stepHerd(site); break;
         case 'den': this.stepDen(site); break;
@@ -39,6 +40,8 @@ export class Encounters {
         case 'refugees': this.stepRefugees(site); break;
         case 'relic': this.stepRelic(site); break;
         case 'outpost': this.stepOutpost(site); break;
+        case 'landmark': this.stepLandmark(site); break;
+        case 'village': this.stepVillage(site); break;
       }
     }
   }
@@ -88,6 +91,34 @@ export class Encounters {
     if (!w.explored[cz * MAP_W + cx]) return;
     site.discovered = true;
     w.emit({ t: 'siteDiscovered', kind: site.kind, x: site.x, z: site.z, variant: site.variant });
+  }
+
+  /**
+   * A scout that has stood at a site has learned something: one rank, once per
+   * site per side. Rank widens the eye and quickens the step (see `SCOUT`), so
+   * a veteran scout is a real piece and losing one costs you.
+   */
+  private creditScouts(site: EncounterSite) {
+    const w = this.world;
+    for (let owner = 0; owner <= 1; owner++) {
+      const bit = 1 << owner;
+      if ((site.seenBy ?? 0) & bit) continue;
+      const scout = this.nearest(site.x, site.z, 12, u => u.owner === owner && u.type === 'scout');
+      if (!scout) continue;
+      site.seenBy = (site.seenBy ?? 0) | bit;
+      const rank = (scout.rank ?? 0) + 1;
+      if (rank > SCOUT.maxRank) continue;
+      scout.rank = rank;
+      if (owner === 0) {
+        w.emit({
+          t: 'toast', owner: 0,
+          msg: rank >= SCOUT.maxRank
+            ? 'Your scout knows this country as well as anyone alive'
+            : `Your scout learns the country (rank ${rank})`,
+          kind: 'good'
+        });
+      }
+    }
   }
 
   /** Nearest unit matching a predicate within r of a point, or null. */
@@ -280,34 +311,14 @@ export class Encounters {
     const fort = w.buildings.get(site.buildingId);
     if (!fort) { site.state = 'cleared'; return; }   // someone razed it
 
-    let present = -1, contested = false;
-    for (const u of w.units.values()) {
-      if (u.owner > 1 || u.water) continue;
-      if (dist2(u.x, u.z, site.x, site.z) > ENC.captureR * ENC.captureR) continue;
-      if (present < 0) present = u.owner;
-      else if (present !== u.owner) { contested = true; break; }
-    }
-
-    if (contested || present < 0 || present === site.holder) {
-      // nobody claiming: the current effort slips back toward neutral
-      if (!contested && site.capture > 0) {
-        site.capture = Math.max(0, site.capture - ENC.captureDecay * SCAN / ENC.captureTime);
-        if (site.capture === 0) site.claimant = -1;
-      }
-      return;
-    }
-
-    if (site.claimant !== present) { site.claimant = present; site.capture = 0; }
-    site.capture += SCAN / ENC.captureTime;
-    if (site.capture < 1) return;
+    const taken = this.stepCapture(site, ENC.captureR);
+    if (taken < 0) return;
 
     // taken
     const prev = site.holder;
-    site.holder = present;
-    site.capture = 0;
-    site.claimant = -1;
-    w.reassignBuilding(fort, present);
-    if (present === 0) {
+    site.holder = taken;
+    w.reassignBuilding(fort, taken);
+    if (taken === 0) {
       w.markExplored(site.x, site.z, w.buildingVision(0, 'outpost'));
       w.emit({
         t: 'toast', owner: 0,
@@ -317,7 +328,156 @@ export class Encounters {
       w.emit({ t: 'toast', owner: 0, msg: 'The rival has taken your ruined fort', kind: 'warn' });
       w.emit({ t: 'ping', x: site.x, z: site.z, color: '#e05a44' });
     }
-    w.emit({ t: 'siteCleared', kind: 'outpost', x: site.x, z: site.z, owner: present });
+    w.emit({ t: 'siteCleared', kind: 'outpost', x: site.x, z: site.z, owner: taken });
+  }
+
+  /**
+   * Standing in a place with nobody contesting it is what claims it. Both sides
+   * in the yard and the claim stalls entirely, which is what turns a claimable
+   * site into somewhere to fight rather than somewhere to walk.
+   *
+   * Returns the owner that has just taken it, or -1 if nothing changed.
+   */
+  private stepCapture(site: EncounterSite, radius: number): number {
+    const w = this.world;
+    let present = -1, contested = false;
+    for (const u of w.units.values()) {
+      if (u.owner > 1 || u.water) continue;
+      if (dist2(u.x, u.z, site.x, site.z) > radius * radius) continue;
+      if (present < 0) present = u.owner;
+      else if (present !== u.owner) { contested = true; break; }
+    }
+    if (contested || present < 0 || present === site.holder) {
+      if (!contested && site.capture > 0) {
+        site.capture = Math.max(0, site.capture - ENC.captureDecay * SCAN / ENC.captureTime);
+        if (site.capture === 0) site.claimant = -1;
+      }
+      return -1;
+    }
+    if (site.claimant !== present) { site.claimant = present; site.capture = 0; }
+    site.capture += SCAN / ENC.captureTime;
+    if (site.capture < 1) return -1;
+    site.capture = 0;
+    site.claimant = -1;
+    return present;
+  }
+
+  // ---------------- the landmark ----------------
+  /**
+   * One landmark per map, out where only a scout goes. Two of the four are
+   * claimed and can change hands all match; the other two are one-shot finds.
+   */
+  private stepLandmark(site: EncounterSite) {
+    const w = this.world;
+    switch (site.landmark) {
+      case 'beacon':
+      case 'obelisk': {
+        const prop = w.buildings.get(site.buildingId);
+        if (!prop) { site.state = 'cleared'; return; }
+        const taken = this.stepCapture(site, ENC.landmarkR);
+        if (taken < 0) return;
+        const prev = site.holder;
+        site.holder = taken;
+        w.reassignBuilding(prop, taken);
+        const boon = site.landmark;
+        if (prev >= 0) delete w.players[prev].boons[boon];
+        w.grantBoon(taken, boon);
+        if (site.landmark === 'beacon' && taken === 0) {
+          // the fire shows you the country around it, once and for good
+          w.markExplored(site.x, site.z, ENC.beaconReveal);
+        }
+        if (taken === 0) {
+          w.emit({
+            t: 'toast', owner: 0,
+            msg: site.landmark === 'beacon'
+              ? 'The beacon is lit — and everyone can see it burning'
+              : 'The Obelisk is yours — your wounded mend wherever they stand',
+            kind: 'good'
+          });
+        } else if (prev === 0) {
+          w.emit({ t: 'toast', owner: 0, msg: `The rival has taken the ${BOONS[boon].name}`, kind: 'warn' });
+          w.emit({ t: 'ping', x: site.x, z: site.z, color: '#e05a44' });
+        }
+        w.emit({ t: 'siteCleared', kind: 'landmark', x: site.x, z: site.z, owner: taken });
+        return;
+      }
+      case 'grove': {
+        // ancient trees: nothing to claim, only to cut — and they never regrow
+        const left = (site.nodeIds ?? []).filter(id => w.nodes.has(id));
+        site.nodeIds = left;
+        if (left.length === 0) site.state = 'cleared';
+        return;
+      }
+      case 'spring': {
+        // a villager drinks, and what the rival is building is known to you
+        const drinker = this.nearest(site.x, site.z, ENC.springR,
+          u => u.owner <= 1 && u.type === 'villager');
+        if (!drinker) return;
+        site.state = 'cleared';
+        const foe = drinker.owner === 0 ? 1 : 0;
+        const tc = w.tcPos[foe];
+        if (drinker.owner === 0) {
+          w.markExplored(tc.x, tc.z, 18);
+          w.emit({ t: 'ping', x: tc.x, z: tc.z, color: '#f0c05a' });
+          w.emit({ t: 'toast', owner: 0, msg: `The spring shows you their town — ${armyReport(w, foe)}`, kind: 'good' });
+        } else {
+          w.emit({ t: 'toast', owner: 0, msg: 'The rival has drunk at the Oracle Spring', kind: 'warn' });
+        }
+        const prop = w.buildings.get(site.buildingId);
+        if (prop) w.removeBuilding(prop);
+        site.buildingId = 0;
+        w.emit({ t: 'siteCleared', kind: 'landmark', x: site.x, z: site.z, owner: drinker.owner });
+        return;
+      }
+    }
+  }
+
+  // ---------------- free villages ----------------
+  /**
+   * A free people, who are not a faction and never attack anyone. What you do
+   * with them is the point: court them with food and they pay you and fight for
+   * you; hold them at spear-point and they pay you less and resent it; or sack
+   * them, take everything, and find that no village on the map will treat with
+   * you again.
+   */
+  private stepVillage(site: EncounterSite) {
+    const w = this.world;
+    site.hutIds = (site.hutIds ?? []).filter(id => w.buildings.has(id));
+    if (site.hutIds.length === 0) { site.state = 'cleared'; return; }
+    for (const id of site.unitIds) this.wander(w.units.get(id)!, site.x, site.z, 2);
+
+    // Soldiers standing over the huts take what a courtship would have been given.
+    const r2 = ENC.villageR * ENC.villageR;
+    const soldiers = [0, 0];
+    for (const u of w.units.values()) {
+      if (u.owner > 1 || u.water || !isSoldier(u)) continue;
+      if (dist2(u.x, u.z, site.x, site.z) <= r2) soldiers[u.owner]++;
+    }
+    const taxer = soldiers[0] >= ENC.taxSoldiers && soldiers[1] < ENC.taxSoldiers ? 0
+      : soldiers[1] >= ENC.taxSoldiers && soldiers[0] < ENC.taxSoldiers ? 1
+      : -1;
+    if (taxer >= 0 && taxer !== site.holder) {
+      if (site.taxedBy !== taxer && taxer === 0) {
+        w.emit({ t: 'toast', owner: 0, msg: `${site.name ?? 'The village'} pays you at spear-point`, kind: '' });
+      }
+      site.taxedBy = taxer;
+      site.timer = ENC.taxGrace;
+    } else if ((site.taxedBy ?? -1) >= 0) {
+      site.timer -= SCAN;
+      if (site.timer <= 0) {
+        if (site.taxedBy === 0) {
+          w.emit({ t: 'toast', owner: 0, msg: `${site.name ?? 'The village'} stops paying the moment your spears leave`, kind: 'warn' });
+        }
+        site.taxedBy = -1;
+      }
+    }
+
+    // What they pay, and to whom.
+    if (site.holder >= 0) {
+      w.players[site.holder].res.gold += ENC.tributeRate * SCAN;
+    } else if ((site.taxedBy ?? -1) >= 0) {
+      w.players[site.taxedBy!].res.gold += ENC.taxRate * SCAN;
+    }
   }
 
   // ---------------- the Golden Idol ----------------
@@ -363,6 +523,29 @@ export class Encounters {
     w.emit({ t: 'relic', phase: 'taken', x: site.x, z: site.z });
     w.emit({ t: 'toast', owner: 0, msg: 'The Golden Idol is yours — carry it home!', kind: 'good' });
   }
+}
+
+/** Anything that carries a weapon for a player — not workers, not the wilds. */
+function isSoldier(u: Unit): boolean {
+  return u.owner <= 1 && u.type !== 'villager' && u.type !== 'scout' &&
+    u.type !== 'boat' && u.type !== 'tradecart';
+}
+
+/** What the spring tells you: the shape of the rival's army, in plain words. */
+function armyReport(world: World, owner: number): string {
+  const counts = new Map<string, number>();
+  let total = 0;
+  for (const u of world.units.values()) {
+    if (u.owner !== owner || !isSoldier(u)) continue;
+    total++;
+    counts.set(u.type, (counts.get(u.type) ?? 0) + 1);
+  }
+  if (total === 0) return 'they have no army at all';
+  const parts = [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([type, n]) => `${n} ${UNITS[type as keyof typeof UNITS].short.toLowerCase()}`);
+  return parts.join(', ');
 }
 
 // ---------------------------------------------------------------- sim hooks
@@ -424,11 +607,60 @@ function flee(world: World, u: Unit, fromX: number, fromZ: number) {
 function provokeSiteOf(world: World, memberOrBuildingId: number, byOwner: number) {
   if (byOwner < 0 || byOwner > 1) return;
   for (const site of world.sites) {
-    if (site.buildingId === memberOrBuildingId || site.unitIds.includes(memberOrBuildingId)) {
+    if (site.buildingId === memberOrBuildingId || site.unitIds.includes(memberOrBuildingId) ||
+        (site.hutIds ?? []).includes(memberOrBuildingId)) {
       site.provokedBy = byOwner;
       return;
     }
   }
+}
+
+/**
+ * A hut has come down. The village is only finished when the last one does —
+ * and then whoever did it takes everything and is never trusted again, by this
+ * village or any other on the map.
+ */
+function sackVillage(world: World, site: EncounterSite, hut: Building, byOwner: number) {
+  site.hutIds = (site.hutIds ?? []).filter(id => id !== hut.id && world.buildings.has(id));
+  if (site.hutIds.length > 0) {
+    if (byOwner === 0 && !site.offered) {
+      site.offered = true;
+      world.emit({
+        t: 'toast', owner: 0,
+        msg: `You are burning ${site.name ?? 'a free village'} — no village will treat with you after this`,
+        kind: 'warn'
+      });
+    }
+    return;
+  }
+  site.state = 'cleared';
+  const prev = site.holder;
+  site.holder = -1;
+  site.taxedBy = -1;
+  if (byOwner === 0 || byOwner === 1) {
+    world.sacker[byOwner] = true;
+    const p = world.players[byOwner];
+    const cut = ENC.sackLoot / 3;
+    p.res.food += cut; p.res.wood += cut; p.res.gold += cut;
+    if (prev === byOwner) delete p.boons.tribute;
+    if (byOwner === 0) {
+      world.emit({ t: 'deposit', owner: 0, res: 'gold', amount: Math.round(cut), x: hut.x, z: hut.z });
+      world.emit({
+        t: 'toast', owner: 0,
+        msg: `${site.name ?? 'The village'} is ash — ${Math.round(cut)} of each, and no free people will deal with you again`,
+        kind: 'warn'
+      });
+    } else {
+      world.emit({ t: 'toast', owner: 0, msg: 'The rival has put a free village to the sword', kind: '' });
+    }
+  }
+  // the folk who lived there scatter
+  for (const id of site.unitIds) {
+    const u = world.units.get(id);
+    if (u) world.killUnit(u, byOwner);
+  }
+  site.unitIds = [];
+  world.emit({ t: 'siteCleared', kind: 'village', x: site.x, z: site.z, owner: byOwner });
 }
 
 /** A wilds building took a hit (but stands): its keepers turn hostile. */
@@ -459,6 +691,8 @@ export function onWildsUnitKilled(world: World, u: Unit, byOwner: number) {
 
 /** A wilds building fell: pay out whatever it was guarding. */
 export function onWildsBuildingRazed(world: World, b: Building, byOwner: number) {
+  const village = world.sites.find(s => s.kind === 'village' && (s.hutIds ?? []).includes(b.id));
+  if (village) { sackVillage(world, village, b, byOwner); return; }
   const site = world.sites.find(s => s.buildingId === b.id);
   if (!site || site.state === 'cleared') return;
   site.state = 'cleared';

@@ -283,6 +283,32 @@ const P: Record<string, string> = {
     </g>
     <path d="M12 3.4l1.1 2.2 2.4.3-1.8 1.7.5 2.4-2.2-1.2-2.2 1.2.5-2.4L8.5 5.9l2.4-.3z" fill="${G.goldDeep}"/>`,
 
+  // ---------- exploration, the city and the free peoples ----------
+  /** A compass rose: the order to go and find out what is out there. */
+  explore: `<circle cx="12" cy="12" r="8.6" fill="none" stroke="${G.stoneDark}" stroke-width="1.6"/>
+    <circle cx="12" cy="12" r="6.6" fill="${G.dark}" opacity="0.25"/>
+    <path d="M12 5.4l2.1 5.1 5.1 2.1-5.1 1.3-2.1 4.7-2.1-4.7-5.1-1.3 5.1-2.1z" fill="${G.gold}"/>
+    <path d="M12 5.4l2.1 5.1-2.1.9z" fill="${G.red}"/>`,
+  /** A rooftop skyline: the city ledger. */
+  city: `<path d="M2.6 20.4V12l4.6-3.2V20.4z" fill="${G.stoneDark}"/>
+    <path d="M7.2 20.4V6.4L13 2.6l5.8 3.8v14z" fill="${G.stone}"/>
+    <path d="M13 2.6l5.8 3.8H7.2z" fill="${G.cloth}"/>
+    <g fill="${G.dark}" opacity="0.55">
+      <rect x="9.4" y="9" width="2.2" height="2.6" rx="0.5"/>
+      <rect x="14.2" y="9" width="2.2" height="2.6" rx="0.5"/>
+      <rect x="9.4" y="13.6" width="2.2" height="2.6" rx="0.5"/>
+      <rect x="14.2" y="13.6" width="2.2" height="2.6" rx="0.5"/>
+      <rect x="3.8" y="13.4" width="2.2" height="2.6" rx="0.5"/></g>
+    <path d="M18.8 20.4V11l2.6 1.8v7.6z" fill="${G.stoneDark}"/>`,
+  /** A loaf and a hand: the courtship of a free people. */
+  court: `<path d="M4.4 13.6c0-3 2.6-5.2 6-5.2h3.2c3.4 0 6 2.2 6 5.2 0 1.6-1.2 2.6-2.8 2.6H7.2c-1.6 0-2.8-1-2.8-2.6z"
+      fill="${G.bronze}"/>
+    <path d="M6.6 11.6c1-1 2.6-1.6 4.4-1.6h2.6c1.8 0 3.4.6 4.4 1.6" fill="none"
+      stroke="${G.gold}" stroke-width="1.3" stroke-linecap="round"/>
+    <path d="M8 18.8h8" stroke="${G.woodDark}" stroke-width="1.8" stroke-linecap="round"/>
+    <path d="M12 7.4V4.2M9.4 5.6l1.4 1.6M14.6 5.6l-1.4 1.6" stroke="${G.leaf}" stroke-width="1.5"
+      stroke-linecap="round"/>`,
+
   // ---------- difficulty ----------
   laurel: `<path d="M12 21c-4-2-6.4-5.6-6.4-9.6C5.6 7 8.2 4 12 3c3.8 1 6.4 4 6.4 8.4 0 4-2.4 7.6-6.4 9.6z"
       fill="none" stroke="${G.leaf}" stroke-width="1.8"/>

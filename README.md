@@ -33,8 +33,12 @@ Open on a phone (landscape) or desktop browser.
    buildings.
 4. Tap **Build** to raise houses (population), farms, barracks, towers, walls,
    docks, and your civilization's monument.
-5. Train soldiers, research technologies, and scout the map.
-6. Find the enemy town, weather their raids, and **destroy every Town Center
+5. Train a **Scout** at the Town Center and tap **Explore** — it walks the
+   frontier on its own, and gets faster and further-sighted with every site it
+   finds.
+6. Train soldiers, research technologies, and watch your income in the
+   **city panel** (the skyline button on the right rail).
+7. Find the enemy town, weather their raids, and **destroy every Town Center
    they hold** — or raise a **Wonder** as a Metropolis and keep it standing.
 
 ### Settlement levels
@@ -45,9 +49,9 @@ of the game.
 
 | Level | Cost | Unlocks |
 | --- | --- | --- |
-| I — Camp | — | House, Farm, Storehouse, Dock, Villagers, Fishing Boats |
+| I — Camp | — | House, Farm, Storehouse, Dock, Villagers, **Scouts**, Fishing Boats |
 | II — Hamlet | 100 food | Barracks, Wall, Spearman, civic gardens, **the Obelisk** |
-| III — Village | 190 food, 80 wood | Archery Range, Market, Shrine, Archer, Trade Cart, The Wheel, civic plazas *(Rome paves here)* |
+| III — Village | 190 food, 80 wood | Archery Range, Market, Shrine, Archer, Trade Cart, The Wheel, Causeway, civic plazas *(Rome paves here)* |
 | IV — Town | 300 food, 100 gold | Elite unit, **Siege Workshop**, Watch Tower, Academy, Forum, extra Town Centers, Masonry, Bronze Arms, Irrigation, Medicine, **the Acropolis and the Castrum** |
 | V — City | 460 food, 190 gold, 100 stone | Temple, Amphitheater, Lighthouse, Monument, Coinage, Logistics |
 | VI — Metropolis | 650 food, 320 gold, 200 stone | **The Wonder**, Hardened Shields |
@@ -115,9 +119,38 @@ you could once ignore now needs an answer.
   Town). A young settlement only wears its streets into the dirt — reaching
   **Town** paves the whole network at once, in the same stone as the plaza
   around your town center. Rome does it a level early, at **Village**, which is
-  the one civilization bonus you can read from across the map. It is all
-  scenery: nothing blocks a path, and laying a foundation over a garden simply
-  sweeps it away.
+  the one civilization bonus you can read from across the map. Nothing blocks a
+  path, and laying a foundation over a garden simply sweeps it away.
+- **Streets carry the traffic** — and this is what paving is *for*. Everyone
+  moves 25% faster on laid stone and 12% faster on a worn path, so reaching
+  Town speeds up every haul in your city at once, your army redeploys along
+  your own streets faster than an attacker crosses open ground, and a trade
+  route that runs on stone pays up to 15% more gold. Lay your own with the
+  **Causeway** *(Village, 8 stone)* — tap-tap-tap like a wall — out to a
+  forward fort, a distant mine, or the market road.
+- **Districts** — where a building stands now matters as much as that it
+  stands. Every bonus is small, and the placement ghost tells you what the
+  ground is worth before you commit:
+
+  | Quarter | What it takes | What it gives |
+  | --- | --- | --- |
+  | A street of houses | 2 more houses within 6 | +1 population each |
+  | ...with somewhere to sit | a garden or plaza within 4.5 | +1 more |
+  | Drill yard | 2 of Barracks / Range / Siege Workshop within 9 | 15% faster training |
+  | Exchange | Market and Forum within 9 | +20% trade gold |
+  | Field system | 2 more farms within 6 | +10% yield each |
+  | Depot | a Storehouse with 3+ resources within 6 | +10% gathering there |
+  | Sacred games | Shrine or Temple within 11 of the Amphitheater | half again the healing reach |
+
+- **Festivals** — every settlement level-up throws one. Petals go up over one
+  roof after another, outward from your town center, a horn sounds, and for 90
+  seconds the whole city gathers 15% faster and builds 25% faster. It is the
+  one moment in the match that is nobody's emergency.
+- **The city panel** *(the skyline button)* — income per minute with a
+  sparkline for each resource, where every villager actually is (tap a line to
+  take that group in hand), what your quarters are earning, and an estimate of
+  the rival's strength that is only ever as good as your scouting. What you
+  have not walked is not counted.
 - **Wonder** *(Metropolis)* — complete it and defend it for three minutes to win
   without razing a single town center. The enemy will come with everything.
 
@@ -137,6 +170,14 @@ A neutral third power lives between the two towns, and scouting is how you
 meet it. Sites appear on the minimap as small gold diamonds once your fog
 lifts; walking up to one is what springs it.
 
+- **The Scout** *(Camp, 35 food)* — fast, far-sighted, and no use whatsoever in
+  a fight: shot at, it runs. Tap **Explore** and it walks the frontier by
+  itself, picking the nearest worthwhile patch of unknown country and moving on
+  when it gets there — exploring a map this size must not cost a hundred taps.
+  Every site it finds earns a **Pathfinder** rank, up to five: +1 tile of sight
+  and +4% speed each. A veteran scout is a real piece, and losing one hurts.
+  The rival trains one too, and wants the same sites you do.
+
 - **Game herds** — gazelle flee the hunt (wounded animals tire), boar turn and
   fight. A kill leaves a **carcass** your villagers butcher for food before it
   spoils; hunters switch to butchering on their own.
@@ -155,6 +196,25 @@ lifts; walking up to one is what springs it.
   can carry it, the carrier is marked on the minimap, and if they fall it drops
   where they died — for anyone to take. Enshrine it at a Town Center for a
   permanent trickle of gold.
+- **Free villages** — two peoples of their own, living in huts around a green.
+  They are not a faction and they never attack anyone. What you do with them is
+  the point: **court** them (200 food, standing among them) and they become a
+  tributary, paying a steady 0.4 gold/s and sending two **Slingers** to fight
+  under your banner; **tax** them (three soldiers standing over the huts) for
+  less than half that, and they stop the moment your spears leave; or **sack**
+  them for 250 in mixed loot — after which no free village on the map will ever
+  treat with you again. The rival courts them too, so a village won is a
+  village denied.
+- **The landmark** — one per map, further out than anything else, and never the
+  same one twice running:
+  - **Beacon Hill** — claim it like a fort. The fire shows its holder a wide
+    circle of country for good, and every unit they own sees further.
+  - **Obelisk of the Lost** — claim it, and your wounded mend slowly wherever
+    they stand, anywhere on the map.
+  - **Amber Grove** — ancient trees carrying four times the timber. They never
+    grow back.
+  - **Oracle Spring** — send a villager to drink and their town is revealed,
+    along with the shape of the army standing in it. Once, and it is spent.
 - **Ruined forts** — derelicts of some older war, standing between the two
   towns. Unlike every other site these are never *spent*: stand in one with no
   enemy in the yard and you claim it, and it can be taken and retaken all match.
@@ -173,11 +233,13 @@ draw steel when the wilds draw first.
 | Move / gather / attack | tap ground / resource / enemy | right-click |
 | Pan camera | drag | middle/right drag, screen edge, or minimap |
 | Zoom | pinch | scroll wheel |
-| Select all soldiers | helmet button | helmet button |
+| Select all soldiers | crossed-swords button | crossed-swords button |
 | Next idle villager | villager button (shows a count) | same |
 | Cancel / deselect | ✕ buttons | Esc |
 
-Double-tap a unit to select all of its type. Select a production building and
+Tap the **skyline button** on the right rail for the city panel — income,
+labour and what you know of the rival. Double-tap a unit to select all of its
+type. Select a production building and
 tap the ground to set its rally point — rallying onto a resource puts new
 villagers straight to work. **Gather** sends idle workers to the nearest
 sensible resource; **Hold** roots soldiers in place so they fight without

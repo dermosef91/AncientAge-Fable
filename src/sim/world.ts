@@ -3,7 +3,7 @@
 import {
   availableTo, BOONS, BUILDINGS, CARRY_CAP, ENC, FACTIONS, FARM_FOOD, GATHER_RATE, isTownCenter,
   MAP_H, MAP_W, MARKET_BUY_GOLD, MARKET_LOT, MARKET_SELL_GOLD, MAX_LEVEL, NODE_AMOUNT, POP_MAX,
-  SETTLEMENTS, TECHS, UNITS, WILDS, type Cost
+  ROAD_SPEED, SCOUT, SETTLEMENTS, TECHS, UNITS, WILDS, type Cost
 } from '../core/config';
 import type {
   Building, BuildingTypeId, EncounterSite, Faction, NodeKind, PlayerState, Projectile,
@@ -11,7 +11,8 @@ import type {
 } from '../core/types';
 import { RES_OF_NODE } from '../core/types';
 import { dist, dist2 } from '../core/utils';
-import { clearCivicUnder, type CivicProp } from './civic';
+import { clearCivicUnder, layCauseway, SURFACE, type CivicProp } from './civic';
+import { recomputeAdjacency } from './districts';
 import {
   F_BLOCK, F_BUILDING, F_WALL0, F_WALL1, F_WATER, findPath, landPassable, nearestFree,
   ringCells, waterPassable
@@ -41,6 +42,8 @@ export class World {
   civic: CivicProp[] = [];
   /** Cell -> civic prop id; -1 marks the founding plaza laid at map gen. */
   civicAt = new Int32Array(MAP_W * MAP_H);
+  /** Street surface per cell: 0 none, 1 worn path, 2 laid stone. */
+  civicKindAt = new Uint8Array(MAP_W * MAP_H);
   /** Bumped on every civic change so the view can resync cheaply. */
   civicRev = 0;
   civicSeeded = false;
@@ -66,6 +69,45 @@ export class World {
   wonderT: [number, number] = [-1, -1];
   /** Encounter sites in the wilds (owner 2), placed during map gen. */
   sites: EncounterSite[] = [];
+  /**
+   * Owners who have put a free village to the sword. Blood spoils the deal
+   * everywhere: no other village on the map will treat with them again.
+   */
+  sacker: [boolean, boolean] = [false, false];
+  /**
+   * A rolling record of what each player has gathered, sampled by the sim so
+   * the city panel can show income without the interface keeping its own books.
+   * Cumulative totals; the panel differences them.
+   */
+  econ: { t: number; totals: Record<ResType, number>[] }[] = [];
+  private econT = 0;
+  /**
+   * Storehouses standing in a rich seam, per player (see districts.ts). Cached
+   * because every gathering villager asks about them on every tick.
+   */
+  depots: { x: number; z: number }[][] = [[], []];
+  /** Frontier blocks a scout could not reach -> world time to try again. */
+  private frontierSkip = new Map<number, number>();
+  /**
+   * Coarse record of where the rival's units have been, one flag per frontier
+   * block. The rival has no fog of war to read, so this is what its scout
+   * explores against.
+   */
+  blockSeen = new Uint8Array(Math.ceil(MAP_W / SCOUT.block) * Math.ceil(MAP_H / SCOUT.block));
+
+  /** Mark the block a rival unit is standing in as country it has now seen. */
+  noteSeen(x: number, z: number) {
+    const B = SCOUT.block;
+    const bw = Math.ceil(MAP_W / B);
+    const bx = Math.floor(x / B), bz = Math.floor(z / B);
+    for (let dz = -1; dz <= 1; dz++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const nx = bx + dx, nz = bz + dz;
+        if (nx < 0 || nz < 0 || nx >= bw || nz >= Math.ceil(MAP_H / B)) continue;
+        this.blockSeen[nz * bw + nx] = 1;
+      }
+    }
+  }
 
   constructor(playerFaction: Faction, aiFaction: Faction, aiGatherMul: number) {
     this.players = [
@@ -149,7 +191,7 @@ export class World {
     const f = FACTIONS[p.faction];
     let hp = d.hp, atk = d.atk, speed = d.speed;
     let meleeArmor = d.meleeArmor, pierceArmor = d.pierceArmor;
-    const isMil = type !== 'villager' && type !== 'boat' && type !== 'tradecart';
+    const isMil = type !== 'villager' && type !== 'scout' && type !== 'boat' && type !== 'tradecart';
     if (isMil && f.bonus.unitHpMul) hp *= f.bonus.unitHpMul;
     if (isMil && p.techs.has('bronze')) atk *= 1.25;
     if (isMil && p.techs.has('shields')) { meleeArmor += 1; pierceArmor += 1; hp *= 1.15; }
@@ -216,12 +258,28 @@ export class World {
     if (kind === 'farm' && p.techs.has('irrigation')) r *= 1.25;
     if (kind === 'stone' && p.techs.has('marble')) r *= 1.25;
     if (kind === 'fish' && this.hasBuilt(owner, 'lighthouse')) r *= 1.3;
+    // A city at its festival works with a will.
+    if (this.hasBoon(owner, 'festival')) r *= 1.15;
     return r * p.gatherMul;
   }
 
   buildRate(owner: number): number {
     const base = FACTIONS[this.players[owner].faction].bonus.buildRateMul ?? 1;
-    return base * (this.hasBoon(owner, 'gratitude') ? 1.2 : 1);
+    return base
+      * (this.hasBoon(owner, 'gratitude') ? 1.2 : 1)
+      * (this.hasBoon(owner, 'festival') ? 1.25 : 1);
+  }
+
+  /**
+   * What the ground underfoot is worth to a walker. Streets are the settlement's
+   * own scenery (see civic.ts) and cost nothing to cross — this is the whole
+   * return on paving them.
+   */
+  speedMulAt(x: number, z: number): number {
+    const cx = Math.floor(x), cz = Math.floor(z);
+    if (cx < 0 || cz < 0 || cx >= MAP_W || cz >= MAP_H) return 1;
+    const k = this.civicKindAt[cz * MAP_W + cx];
+    return k === SURFACE.road ? ROAD_SPEED.road : k === SURFACE.path ? ROAD_SPEED.path : 1;
   }
 
   canAfford(owner: number, c: Cost): boolean {
@@ -268,7 +326,8 @@ export class World {
       built: prebuilt, progress: prebuilt ? 1 : 0,
       queue: [], rally: null, cooldown: 0, attackAnimT: 99, lastHitT: -99,
       farmFood: def.farm ? FARM_FOOD : 0, withered: false, workerId: 0,
-      trickleT: 0
+      trickleT: 0,
+      adjPop: 0, adjTrain: 1, adjTrade: 1, adjFarm: 1, adjHeal: 1, adjDepot: false
     };
     this.buildings.set(b.id, b);
     // Civic scenery is built over without ceremony.
@@ -281,8 +340,8 @@ export class World {
           this.grid[z * MAP_W + x] |= flags;
     }
     if (prebuilt) {
-      if (def.pop) this.players[owner].popCap = Math.min(POP_MAX, this.players[owner].popCap + def.pop);
       this.noteBuilt(owner, type, 1);
+      this.recomputePop(owner);
     }
     if (isTownCenter(type)) this.refreshTcPos(owner);
     return b;
@@ -296,15 +355,9 @@ export class World {
    */
   reassignBuilding(b: Building, owner: number) {
     if (b.owner === owner) return;
-    const def = BUILDINGS[b.type];
     const frac = b.maxHp > 0 ? b.hp / b.maxHp : 1;
-    if (b.built) {
-      this.noteBuilt(b.owner, b.type, -1);
-      if (def.pop) {
-        const old = this.players[b.owner];
-        old.popCap = Math.max(0, old.popCap - def.pop);
-      }
-    }
+    const from = b.owner;
+    if (b.built) this.noteBuilt(b.owner, b.type, -1);
     // Walls gate for their owner, so the pass-through flag has to move too.
     if (b.type === 'wall') {
       for (let z = b.cz; z < b.cz + b.size; z++) {
@@ -320,13 +373,9 @@ export class World {
     b.queue.length = 0;
     b.maxHp = this.buildingHp(owner, b.type);
     b.hp = Math.max(1, Math.round(b.maxHp * frac));
-    if (b.built) {
-      this.noteBuilt(owner, b.type, 1);
-      if (def.pop) {
-        const p = this.players[owner];
-        p.popCap = Math.min(POP_MAX, p.popCap + def.pop);
-      }
-    }
+    if (b.built) this.noteBuilt(owner, b.type, 1);
+    if (from <= 1) recomputeAdjacency(this, from);
+    if (owner <= 1) recomputeAdjacency(this, owner);
     this.emit({ t: 'upgrade', id: b.id, owner, bType: b.type, x: b.x, z: b.z });
   }
 
@@ -376,7 +425,6 @@ export class World {
           this.grid[z * MAP_W + x] &= ~flags;
     }
     const p = this.players[b.owner];
-    if (b.built && def.pop) p.popCap = Math.max(0, p.popCap - def.pop);
     if (b.built) this.noteBuilt(b.owner, b.type, -1);
     if (b.type === 'wonder' && this.wonderT[b.owner] >= 0) {
       this.wonderT[b.owner] = -1;
@@ -405,6 +453,29 @@ export class World {
       if (q.kind === 'upgrade' && q.to) this.refund(b.owner, this.buildingCost(b.owner, q.to), 1);
     }
     this.buildings.delete(b.id);
+    if (b.owner <= 1) {
+      // The quarter has lost a neighbour: everything around it is worth less.
+      recomputeAdjacency(this, b.owner);
+      const pl = this.players[b.owner];
+      if (b.owner === 0 && pl.popUsed > pl.popCap) {
+        this.emit({ t: 'toast', owner: 0, msg: 'Your people are over their housing', kind: 'warn' });
+      }
+    }
+  }
+
+  /**
+   * Population is derived from what is standing, not accumulated as buildings
+   * come and go: adjacency (see districts.ts) moves a house's contribution
+   * around under our feet, so the only honest count is a fresh one.
+   */
+  recomputePop(owner: number) {
+    let cap = 0;
+    for (const b of this.buildings.values()) {
+      if (b.owner !== owner || !b.built) continue;
+      const pop = BUILDINGS[b.type].pop;
+      if (pop) cap += pop + b.adjPop;
+    }
+    this.players[owner].popCap = Math.min(POP_MAX, cap);
   }
 
   killUnit(u: Unit, byOwner = -1) {
@@ -519,6 +590,7 @@ export class World {
   cmdMove(ids: number[], x: number, z: number, attackMove = false) {
     const movers = ids.map(id => this.units.get(id)).filter((u): u is Unit => !!u);
     if (movers.length === 0) return;
+    for (const u of movers) u.exploring = false;
     const slots = formationSlots(x, z, movers.length);
     movers.sort((a, b) => dist2(a.x, a.z, x, z) - dist2(b.x, b.z, x, z));
     for (let i = 0; i < movers.length; i++) {
@@ -539,6 +611,7 @@ export class World {
     for (const id of ids) {
       const u = this.units.get(id);
       if (!u) continue;
+      u.exploring = false;
       if (u.type === 'villager' && n.kind !== 'fish') {
         this.releaseTask(u);
         u.task = { type: 'gather', nodeId };
@@ -557,15 +630,21 @@ export class World {
 
   cmdAttack(ids: number[], targetId: number) {
     // Treasure props aren't fights: tapping a cairn or the idol walks you there,
-    // and the encounter takes over once someone is close enough.
+    // and the encounter takes over once someone is close enough. A scout is
+    // sent to look at things, never to fight them.
     const tb = this.buildings.get(targetId);
+    const scouts = ids.filter(id => this.units.get(id)?.type === 'scout');
     if (tb && tb.owner === WILDS && (tb.type === 'cairn' || tb.type === 'pedestal')) {
       this.cmdMove(ids, tb.x, tb.z + tb.size / 2 + 0.4, false);
       return;
     }
+    if (scouts.length > 0) {
+      const t = this.units.get(targetId) ?? this.buildings.get(targetId);
+      if (t) this.cmdMove(scouts, t.x, t.z, false);   // clears the explore order
+    }
     for (const id of ids) {
       const u = this.units.get(id);
-      if (!u || u.type === 'boat' || u.type === 'tradecart') continue;
+      if (!u || u.type === 'boat' || u.type === 'tradecart' || u.type === 'scout') continue;
       if (u.type === 'refugee' || u.type === 'gazelle') continue;
       this.releaseTask(u);
       u.task = { type: 'attack', targetId };
@@ -818,6 +897,27 @@ export class World {
   }
 
   /** Toggle hold-position on a selection. Returns the resulting state. */
+  /**
+   * Send scouts off to walk the frontier on their own. The order sticks: they
+   * pick their next patch of unknown country every time they finish a leg.
+   */
+  cmdExplore(ids: number[]): boolean {
+    let sent = 0;
+    for (const id of ids) {
+      const u = this.units.get(id);
+      if (!u || u.type !== 'scout') continue;
+      this.releaseTask(u);
+      u.task = { type: 'explore' };
+      u.exploring = true;
+      u.path = null;
+      u.resume = null;
+      u.hold = false;
+      u.gatherT = 0;
+      sent++;
+    }
+    return sent > 0;
+  }
+
   cmdHold(ids: number[], value?: boolean): boolean {
     const units = ids.map(id => this.units.get(id)).filter((u): u is Unit => !!u);
     const next = value !== undefined ? value : !units.every(u => u.hold);
@@ -1065,6 +1165,188 @@ export class World {
     }
     const nf = nearestFree(this.grid, Math.floor(b.x), Math.floor(b.z), water, 8);
     return nf ? { x: nf.x + 0.5, z: nf.z + 0.5 } : { x: b.x, z: b.z + b.size / 2 + 1 };
+  }
+
+  /**
+   * Sample what both players have gathered so far. Cumulative, every few
+   * seconds, capped — the city panel differences two samples to get a rate,
+   * which keeps the books in the simulation where they belong.
+   */
+  sampleEconomy(dt: number) {
+    this.econT += dt;
+    if (this.econT < 3) return;
+    this.econT = 0;
+    const totals = this.players.slice(0, 2).map(p => ({ ...p.stats.gathered }));
+    this.econ.push({ t: this.time, totals });
+    if (this.econ.length > 80) this.econ.shift();
+  }
+
+  /**
+   * Lay one cell of road. A causeway is not a building — it is the same civic
+   * scenery the settlement lays for itself, so it claims no cell, blocks
+   * nothing, and a foundation laid over it simply sweeps it away.
+   */
+  layCauseway(owner: number, cx: number, cz: number): boolean {
+    if (cx < 1 || cz < 1 || cx >= MAP_W - 1 || cz >= MAP_H - 1) {
+      if (owner === 0) this.emit({ t: 'toast', owner, msg: 'Out of bounds', kind: 'warn' });
+      return false;
+    }
+    if (!this.levelOk(owner, BUILDINGS.causeway.level)) {
+      if (owner === 0) {
+        this.emit({
+          t: 'toast', owner,
+          msg: `Requires a ${SETTLEMENTS[BUILDINGS.causeway.level].name}`, kind: 'warn'
+        });
+      }
+      return false;
+    }
+    const i = cz * MAP_W + cx;
+    if (!landPassable(this.grid, cx, cz)) {
+      if (owner === 0) this.emit({ t: 'toast', owner, msg: 'Cannot pave that ground', kind: 'warn' });
+      return false;
+    }
+    if (this.civicAt[i] !== 0 && this.civicKindAt[i] === 2) {
+      if (owner === 0) this.emit({ t: 'toast', owner, msg: 'Already paved', kind: 'warn' });
+      return false;
+    }
+    const cost = this.buildingCost(owner, 'causeway');
+    if (!this.canAfford(owner, cost)) {
+      if (owner === 0) this.emit({ t: 'toast', owner, msg: 'Not enough stone', kind: 'warn' });
+      return false;
+    }
+    this.pay(owner, cost);
+    layCauseway(this, owner, cx, cz);
+    this.emit({ t: 'place', owner, x: cx + 0.5, z: cz + 0.5 });
+    return true;
+  }
+
+  /**
+   * The nearest worthwhile patch of unknown country. The map is summarised on
+   * a coarse block grid (33x33 at the default block size), which is cheap
+   * enough to run whenever a scout finishes a leg.
+   *
+   * Blocks a scout has failed to reach are ignored for a while, so an island
+   * across the water never becomes an obsession.
+   */
+  frontierTarget(fromX: number, fromZ: number, owner = 0): Vec2 | null {
+    const B = SCOUT.block;
+    const bw = Math.ceil(MAP_W / B), bh = Math.ceil(MAP_H / B);
+    const cands: { x: number; z: number; score: number }[] = [];
+    for (let bz = 0; bz < bh; bz++) {
+      for (let bx = 0; bx < bw; bx++) {
+        const bi = bz * bw + bx;
+        if ((this.frontierSkip.get(bi) ?? 0) > this.time) continue;
+        const x0 = bx * B, z0 = bz * B;
+        const x1 = Math.min(MAP_W, x0 + B), z1 = Math.min(MAP_H, z0 + B);
+        let unknown = 0;
+        if (owner === 0) {
+          for (let z = z0; z < z1; z++) {
+            const row = z * MAP_W;
+            for (let x = x0; x < x1; x++) if (!this.explored[row + x]) unknown++;
+          }
+        } else {
+          // The rival keeps no fog — it reads the world directly — so its
+          // scout walks by where it has actually *been*, block by block.
+          unknown = this.blockSeen[bi] ? 0 : B * B;
+        }
+        if (unknown < SCOUT.minUnknown) continue;
+        const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
+        // near and dark beats far and dark; the map is walked outward from home
+        cands.push({ x: cx, z: cz, score: dist(fromX, fromZ, cx, cz) - unknown * 0.35 });
+      }
+    }
+    if (cands.length === 0) return null;
+    cands.sort((a, b) => a.score - b.score);
+    // A block whose middle is water is not the end of the expedition: try the
+    // next-best one rather than sending the scout home.
+    for (const c of cands.slice(0, 12)) {
+      const cell = landPassable(this.grid, Math.floor(c.x), Math.floor(c.z))
+        ? { x: Math.floor(c.x), z: Math.floor(c.z) }
+        : nearestFree(this.grid, Math.floor(c.x), Math.floor(c.z), false, B);
+      if (cell) return { x: cell.x + 0.5, z: cell.z + 0.5 };
+      this.skipFrontier(c.x, c.z);
+    }
+    return null;
+  }
+
+  /** Give up on a stretch of country for a while — it may not be walkable at all. */
+  skipFrontier(x: number, z: number) {
+    const B = SCOUT.block;
+    const bw = Math.ceil(MAP_W / B);
+    const bi = Math.floor(z / B) * bw + Math.floor(x / B);
+    this.frontierSkip.set(bi, this.time + 90);
+  }
+
+  /** The free village nearest a point, if one still stands unsacked. */
+  villageAt(x: number, z: number, r: number): EncounterSite | null {
+    for (const s of this.sites) {
+      if (s.kind !== 'village' || s.state === 'cleared') continue;
+      if (dist2(s.x, s.z, x, z) <= r * r) return s;
+    }
+    return null;
+  }
+
+  /**
+   * Court a free village: food for their headman, and they throw in their two
+   * best fighters. Blood spoils it — a player who has sacked a village
+   * anywhere is never treated with again.
+   */
+  courtVillage(siteId: number, owner: number): boolean {
+    const site = this.sites.find(s => s.id === siteId && s.kind === 'village');
+    if (!site || site.state === 'cleared' || site.holder === owner) return false;
+    // Someone has to be standing there to hand the food over.
+    let envoy = false;
+    for (const u of this.units.values()) {
+      if (u.owner !== owner || u.water) continue;
+      if (dist2(u.x, u.z, site.x, site.z) <= ENC.villageR * ENC.villageR) { envoy = true; break; }
+    }
+    if (!envoy) return false;
+    if (this.sacker[owner]) {
+      if (owner === 0) {
+        this.emit({ t: 'toast', owner, msg: 'They have heard what you did to the last village', kind: 'warn' });
+      }
+      return false;
+    }
+    const p = this.players[owner];
+    if (p.res.food < ENC.courtFood) {
+      if (owner === 0) this.emit({ t: 'toast', owner, msg: 'Not enough food for the headman', kind: 'warn' });
+      return false;
+    }
+    p.res.food -= ENC.courtFood;
+    const lost = site.holder;
+    site.holder = owner;
+    site.taxedBy = -1;
+    if (lost >= 0 && !this.sites.some(s => s.kind === 'village' && s.holder === lost)) {
+      delete this.players[lost].boons.tribute;
+    }
+    if (!this.hasBoon(owner, 'tribute')) this.grantBoon(owner, 'tribute');
+    // Their best fighters walk out with you — spread around the green rather
+    // than stacked on one tile, and only as many as there is housing for.
+    const gift = Math.max(0, Math.min(ENC.courtGift,
+      Math.floor((p.popCap - p.popUsed) / UNITS.slinger.pop)));
+    for (let i = 0; i < gift; i++) {
+      const a = (i / Math.max(1, gift)) * Math.PI * 2;
+      const gx = Math.floor(site.x + Math.cos(a) * 2.2);
+      const gz = Math.floor(site.z + Math.sin(a) * 2.2);
+      const cell = landPassable(this.grid, gx, gz)
+        ? { x: gx, z: gz }
+        : nearestFree(this.grid, gx, gz, false, 6);
+      const u = this.spawnUnit(owner, 'slinger', cell ? cell.x + 0.5 : site.x, cell ? cell.z + 0.5 : site.z);
+      u.post = { x: site.x, z: site.z };
+    }
+    if (gift < ENC.courtGift && owner === 0) {
+      this.emit({ t: 'toast', owner: 0, msg: 'Their fighters have nowhere to sleep — build more houses', kind: 'warn' });
+    }
+    this.emit({ t: 'siteCleared', kind: 'village', x: site.x, z: site.z, owner });
+    if (owner === 0) {
+      this.emit({
+        t: 'toast', owner: 0,
+        msg: `${site.name ?? 'The village'} is yours — their slingers march with you`, kind: 'good'
+      });
+    } else {
+      this.emit({ t: 'toast', owner: 0, msg: 'The rival has courted a free village', kind: 'warn' });
+    }
+    return true;
   }
 
   markExplored(x: number, z: number, r: number) {

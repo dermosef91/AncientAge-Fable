@@ -1,8 +1,9 @@
 // Fixed-timestep simulation: unit task state machines, gathering, construction,
 // combat, projectiles, fog. Deterministic given the same command stream.
 import {
-  BUILDINGS, FARM_FOOD, FARM_RESEED_COST, MAP_W, POP_MAX, RES_ORDER, SETTLEMENTS,
-  SIEGE_UNITS, TECHS, TRADE_BASE_GOLD, TRADE_GOLD_PER_TILE, UNITS, WILDS, WONDER_COUNTDOWN
+  BUILDINGS, ENC, FARM_FOOD, FARM_RESEED_COST, MAP_W, RES_ORDER, ROAD_TRADE_BONUS, SCOUT,
+  SETTLEMENTS, SIEGE_UNITS, TECHS, TRADE_BASE_GOLD, TRADE_GOLD_PER_TILE, UNITS, WILDS,
+  WONDER_COUNTDOWN
 } from '../core/config';
 import type {
   ArmorClass, Building, DamageType, NodeKind, Projectile, ResType, Unit, UnitTypeId
@@ -10,6 +11,7 @@ import type {
 import { RES_OF_NODE } from '../core/types';
 import { angleLerp, clamp, dist, dist2 } from '../core/utils';
 import { civicLevelUp, planCivic } from './civic';
+import { depotMulAt, recomputeAdjacency } from './districts';
 import { onWildsBuildingHit, onWildsBuildingRazed, onWildsUnitKilled, wildsReact } from './encounters';
 import { landPassableFor, waterPassable } from './pathfinding';
 import type { World } from './world';
@@ -29,7 +31,9 @@ export function simTick(world: World, dt: number) {
   separation(world, dt);
   updateProjectiles(world, dt);
   updateWonders(world, dt);
+  if (world.tick % 5 === 0) updateObelisk(world, dt);
   if (world.tick % 20 === 0) updateLabor(world);
+  world.sampleEconomy(dt);
 
   if (world.tick % 5 === 0) updateFog(world);
 }
@@ -44,6 +48,21 @@ function updateWonders(world: World, dt: number) {
       world.winner = o;
       world.victoryReason = 'wonder';
       world.emit({ t: 'victory', winner: o });
+    }
+  }
+}
+
+/**
+ * The Obelisk of the Lost mends its holder's people wherever they stand — the
+ * one landmark whose reward reaches the whole map, and the reason to keep it.
+ */
+function updateObelisk(world: World, dt: number) {
+  for (let owner = 0; owner < 2; owner++) {
+    if (!world.hasBoon(owner, 'obelisk')) continue;
+    const rate = ENC.obeliskHeal * dt * 5;
+    for (const u of world.units.values()) {
+      if (u.owner !== owner || u.hp >= u.maxHp) continue;
+      u.hp = Math.min(u.maxHp, u.hp + rate);
     }
   }
 }
@@ -109,7 +128,8 @@ function updateBuildings(world: World, dt: number) {
     // Production queue
     if (b.queue.length > 0) {
       const q = b.queue[0];
-      q.t += dt * (q.kind === 'unit' && p.techs.has('logistics') ? 1.15 : 1);
+      const drill = q.kind === 'unit' ? 1 / b.adjTrain : 1;
+      q.t += dt * drill * (q.kind === 'unit' && p.techs.has('logistics') ? 1.15 : 1);
       if (q.t >= q.total) {
         b.queue.shift();
         if (q.kind === 'unit' && q.unit) {
@@ -138,7 +158,13 @@ function updateBuildings(world: World, dt: number) {
         } else if (q.kind === 'level' && q.level !== undefined) {
           p.level = Math.max(p.level, q.level);
           civicLevelUp(world, b.owner);
+          recomputeAdjacency(world, b.owner);
           world.emit({ t: 'levelup', owner: b.owner, level: p.level });
+          // Every rise is an occasion: banners go up across the city and the
+          // work goes quicker for a while because everyone is out in it.
+          world.grantBoon(b.owner, 'festival');
+          const home = world.tcPos[b.owner];
+          world.emit({ t: 'festival', owner: b.owner, level: p.level, x: home.x, z: home.z });
           if (b.owner === 0) {
             world.emit({ t: 'toast', owner: 0, msg: `Your settlement grows into a ${SETTLEMENTS[p.level].name}`, kind: 'good' });
           }
@@ -146,16 +172,14 @@ function updateBuildings(world: World, dt: number) {
           // in-place transformation (shrine -> temple, town center -> acropolis)
           world.noteBuilt(b.owner, b.type, -1);
           const frac = b.hp / b.maxHp;
-          const popWas = def.pop ?? 0;
           b.type = q.to;
           b.maxHp = world.buildingHp(b.owner, q.to);
           b.hp = Math.round(b.maxHp * Math.max(frac, 0.6));
-          // The new building may house a different number of people than the old.
-          const popNow = BUILDINGS[q.to].pop ?? 0;
-          if (popNow !== popWas) {
-            p.popCap = Math.max(0, Math.min(POP_MAX, p.popCap + popNow - popWas));
-          }
           world.noteBuilt(b.owner, b.type, 1);
+          // The new building may house a different number of people than the
+          // old; recomputeAdjacency re-derives the whole cap, so the difference
+          // needs no bookkeeping of its own.
+          recomputeAdjacency(world, b.owner);
           world.emit({ t: 'upgrade', id: b.id, owner: b.owner, bType: q.to, x: b.x, z: b.z });
           if (b.owner === 0) {
             world.emit({ t: 'toast', owner: 0, msg: `${BUILDINGS[q.to].name} consecrated`, kind: 'good' });
@@ -167,7 +191,7 @@ function updateBuildings(world: World, dt: number) {
     // Heal aura (shrine / temple)
     if (def.heal && world.tick % 5 === 0) {
       const rate = def.heal.rate * (p.techs.has('medicine') ? 2 : 1);
-      world.unitsNear(b.x, b.z, def.heal.range, tmpUnits);
+      world.unitsNear(b.x, b.z, def.heal.range * b.adjHeal, tmpUnits);
       for (const t of tmpUnits) {
         if (t.owner !== b.owner || t.hp >= t.maxHp) continue;
         t.hp = Math.min(t.maxHp, t.hp + rate * dt * 5);
@@ -268,12 +292,23 @@ function updateUnit(world: World, u: Unit, dt: number) {
   u.attackAnimT += dt;
   u.scanT -= dt;
   const stats = world.unitStats(u.owner, u.type);
+  // Rome's roads under the feet, and — for a scout — a season spent learning
+  // the country. Both scale the same number and stack.
   refreshSpeedAura(world, u);
   stats.speed *= u.speedAura;
+  if (u.rank) stats.speed *= 1 + u.rank * SCOUT.speedPerRank;
 
   switch (u.task.type) {
     case 'idle': {
       u.idleT += dt;
+      // A scout that ran from something goes back to walking the frontier once
+      // it has had a moment: the Explore order outlives the scare that broke it.
+      if (u.type === 'scout' && u.exploring && u.idleT > 2) {
+        u.task = { type: 'explore' };
+        u.path = null;
+        u.gatherT = 0;
+        break;
+      }
       if (u.scanT <= 0 && !u.water) {
         u.scanT = 0.4 + Math.random() * 0.2;
         const def = UNITS[u.type];
@@ -301,6 +336,10 @@ function updateUnit(world: World, u: Unit, dt: number) {
           }
         }
       }
+      break;
+    }
+    case 'explore': {
+      updateExplore(world, u, dt, stats.speed);
       break;
     }
     case 'move': {
@@ -349,8 +388,47 @@ function updateUnit(world: World, u: Unit, dt: number) {
 }
 
 function isMilitary(u: Unit): boolean {
-  return u.type !== 'villager' && u.type !== 'boat' && u.type !== 'tradecart' &&
-    u.type !== 'refugee' && u.type !== 'gazelle';
+  return u.type !== 'villager' && u.type !== 'scout' && u.type !== 'boat' &&
+    u.type !== 'tradecart' && u.type !== 'refugee' && u.type !== 'gazelle';
+}
+
+/**
+ * Walk the frontier. The scout picks the nearest worthwhile patch of unknown
+ * country, walks to it, and picks the next one on arrival — the whole point
+ * being that exploring a 264x264 map must not cost a hundred taps on a phone.
+ *
+ * Ground it cannot reach is written off for a while (see `skipFrontier`), so a
+ * scout never spends the match staring across water at an island.
+ */
+function updateExplore(world: World, u: Unit, dt: number, speed: number) {
+  if (u.task.type !== 'explore') return;
+  const t = u.task;
+  if (t.x === undefined || t.z === undefined) {
+    const next = world.frontierTarget(u.x, u.z, u.owner);
+    if (!next) {
+      u.task = { type: 'idle' };
+      u.idleT = 0;
+      u.exploring = false;
+      if (u.owner === 0) {
+        world.emit({ t: 'toast', owner: 0, msg: 'The scout has walked the whole country', kind: 'good' });
+      }
+      return;
+    }
+    t.x = next.x; t.z = next.z;
+    u.path = null;
+    u.gatherT = 0;
+    return;
+  }
+  // gatherT doubles as the leg timer here: a leg that drags on is a leg that
+  // is not going to finish, so take the next patch instead.
+  u.gatherT += dt;
+  const arrived = approach(world, u, dt, speed, t.x, t.z, 2.2);
+  if (arrived || u.gatherT > 40) {
+    if (!arrived) world.skipFrontier(t.x, t.z);
+    t.x = undefined; t.z = undefined;
+    u.gatherT = 0;
+    u.path = null;
+  }
 }
 
 function isSiege(u: Unit): boolean {
@@ -401,6 +479,9 @@ function updateTrade(world: World, u: Unit, dt: number, speed: number) {
       const p = world.players[u.owner];
       let gold = TRADE_BASE_GOLD + d * TRADE_GOLD_PER_TILE;
       if (p.techs.has('coinage')) gold *= 1.3;
+      gold *= m.adjTrade;
+      // A cart that has run on the city's own stone comes home richer.
+      gold *= 1 + ROAD_TRADE_BONUS * routePaved(world, m, post);
       gold = Math.round(gold);
       p.res.gold += gold;
       p.stats.gathered.gold += gold;
@@ -410,6 +491,23 @@ function updateTrade(world: World, u: Unit, dt: number, speed: number) {
       u.path = null;
     }
   }
+}
+
+/**
+ * How much of the straight run between market and post is laid stone, 0..1.
+ * Sampled rather than walked: the cart's actual path bends around terrain, and
+ * this only has to answer "is this a made road or a track through the grass".
+ */
+function routePaved(world: World, m: Building, post: { x: number; z: number }): number {
+  const steps = 12;
+  let paved = 0;
+  for (let i = 1; i <= steps; i++) {
+    const t = i / (steps + 1);
+    const x = m.x + (post.x - m.x) * t;
+    const z = m.z + (post.z - m.z) * t;
+    if (world.speedMulAt(x, z) > 1.2) paved++;
+  }
+  return paved / steps;
 }
 
 /**
@@ -450,7 +548,8 @@ function approach(world: World, u: Unit, dt: number, speed: number, tx: number, 
     dx = wp.x - u.x; dz = wp.z - u.z;
     wd = Math.hypot(dx, dz) || 1;
   }
-  const step = Math.min(speed * dt, wd);
+  // Stone carries traffic: this is the whole return on paving a city.
+  const step = Math.min(speed * world.speedMulAt(u.x, u.z) * dt, wd);
   const nx = u.x + (dx / wd) * step;
   const nz = u.z + (dz / wd) * step;
   const pass = u.water
@@ -499,7 +598,7 @@ function updateGather(world: World, u: Unit, dt: number, speed: number) {
     // gathering
     if (u.slot < 0) { u.slot = 1; node.gatherers++; }
     u.dir = angleLerp(u.dir, Math.atan2(node.x - u.x, node.z - u.z), Math.min(1, dt * 8));
-    const rate = world.gatherRate(u.owner, node.kind);
+    const rate = world.gatherRate(u.owner, node.kind) * depotMulAt(world, u.owner, node.x, node.z);
     const got = Math.min(rate * dt, node.amount, cap - u.carryAmt);
     u.carryKind = node.kind;
     u.carryAmt += got;
@@ -561,7 +660,7 @@ function updateFarm(world: World, u: Unit, dt: number, speed: number) {
       dist(u.x, u.z, b.x, b.z) < b.size / 2 + 0.6) {
     if (b.withered || b.farmFood <= 0) return; // wait for reseed
     u.dir = angleLerp(u.dir, Math.atan2(b.x - u.x, b.z - u.z), Math.min(1, dt * 8));
-    const rate = world.gatherRate(u.owner, 'farm');
+    const rate = world.gatherRate(u.owner, 'farm') * b.adjFarm;
     const got = Math.min(rate * dt, b.farmFood, cap - u.carryAmt);
     u.carryKind = 'berries';
     u.carryAmt += got;
@@ -645,8 +744,6 @@ function updateBuild(world: World, u: Unit, dt: number, speed: number) {
       if (b.progress >= 1) {
         b.built = true;
         b.hp = b.maxHp;
-        const p = world.players[b.owner];
-        if (def.pop) p.popCap = Math.min(POP_MAX, p.popCap + def.pop);
         world.noteBuilt(b.owner, b.type, 1);
         if (b.type === 'wonder') {
           world.wonderT[b.owner] = WONDER_COUNTDOWN;
@@ -664,6 +761,8 @@ function updateBuild(world: World, u: Unit, dt: number, speed: number) {
         world.emit({ t: 'built', id: b.id, owner: b.owner, bType: b.type, x: b.x, z: b.z });
         // Streets to the neighbours, and ornaments if the work is grand enough.
         planCivic(world, b);
+        // The new work reshapes the quarter around it (and pays the population).
+        recomputeAdjacency(world, b.owner);
         // farms: builder becomes the farmer
         if (def.farm && !b.workerId) {
           b.workerId = u.id;
@@ -915,8 +1014,9 @@ function reactToDamage(world: World, victim: Unit, byOwner: number, fromX: numbe
     }
     return;
   }
-  if (victim.type === 'villager' || victim.type === 'tradecart') {
-    // flee to town center unless already fleeing
+  if (victim.type === 'villager' || victim.type === 'tradecart' || victim.type === 'scout') {
+    // flee to town center unless already fleeing (a scout carries no weapon
+    // worth the name — running is the whole of its defence)
     if (victim.task.type !== 'move' || !victim.path) {
       const tc = world.tcPos[victim.owner];
       world.releaseTask(victim);
@@ -1033,9 +1133,13 @@ function separation(world: World, dt: number) {
 
 // ---------- fog ----------
 function updateFog(world: World) {
+  // Beacon Hill shows its holder the country from the fire.
+  const beacon = world.hasBoon(0, 'beacon') ? ENC.beaconVision : 0;
   for (const u of world.units.values()) {
+    if (u.owner === 1) { world.noteSeen(u.x, u.z); continue; }
     if (u.owner !== 0) continue;
-    world.markExplored(u.x, u.z, u.water ? 9.5 : 8);
+    const base = UNITS[u.type].vision ?? (u.water ? 9.5 : 8);
+    world.markExplored(u.x, u.z, base + (u.rank ?? 0) * SCOUT.visionPerRank + beacon);
   }
   for (const b of world.buildings.values()) {
     // A foundation sees nothing: an unbuilt Obelisk would otherwise be a

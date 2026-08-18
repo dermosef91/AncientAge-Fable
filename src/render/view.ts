@@ -188,6 +188,8 @@ export class GameView {
 
   private sun: THREE.DirectionalLight;
   private ghostMesh: THREE.Mesh | null = null;
+  /** A settlement level-up rolling outward through the city, building by building. */
+  private festival: { stops: { x: number; z: number; size: number }[]; i: number; t: number } | null = null;
   private ghostPad: THREE.Mesh;
   private rallyPole: THREE.Group;
   private rings: THREE.Mesh[] = [];
@@ -463,6 +465,23 @@ export class GameView {
           this.particles.dust(e.x, 0.4, e.z, 14);
           break;
         }
+        case 'festival': {
+          if (e.owner !== 0) break;
+          // The city turns out: petals go up over one building after another,
+          // outward from the town centre, so the whole settlement celebrates
+          // rather than one roof flashing.
+          const stops: { x: number; z: number; size: number }[] = [];
+          for (const b of w.buildings.values()) {
+            if (b.owner !== 0 || !b.built) continue;
+            stops.push({ x: b.x, z: b.z, size: b.size });
+          }
+          stops.sort((a, c) =>
+            (a.x - e.x) ** 2 + (a.z - e.z) ** 2 - ((c.x - e.x) ** 2 + (c.z - e.z) ** 2));
+          this.festival = { stops, i: 0, t: 0 };
+          this.decals.add(e.x, e.z, 5.2, 0xe8c15a, 2.6, 0.4);
+          this.addShake(0.12);
+          break;
+        }
         case 'place':
           this.particles.dust(e.x, 0.2, e.z, 8);
           break;
@@ -506,11 +525,35 @@ export class GameView {
     this.decals.update(rdt);
     this.flags.update(time);
     this.markers.update(rdt);
+    this.updateFestival(rdt);
     this.terrain.update(rdt, time);
     this.updateGhost();
     this.updateSelectionUI(time);
     this.updateCamera(rdt);
     this.renderer.render(this.scene, this.camera);
+  }
+
+  /**
+   * Walk the festival outward through the city, a building every few frames.
+   * Purely presentational: the boon it celebrates lives in the simulation.
+   */
+  private updateFestival(rdt: number) {
+    const f = this.festival;
+    if (!f) return;
+    f.t += rdt;
+    const accent = FACTIONS[this.world.players[0].faction].accent;
+    while (f.i < f.stops.length && f.t > f.i * 0.09) {
+      const s = f.stops[f.i++];
+      const y = heightAt(this.world, s.x, s.z) + (BUILDING_VIS_HEIGHT.house ?? 1.5) * 0.8 + s.size * 0.25;
+      // Petals, not sparks: big, slow, and drifting down for a good two seconds.
+      this.particles.burst(s.x, y, s.z, 14 + s.size * 4, 0xf0cf78,
+        { speed: 1.0, up: 1.9, life: 2.3, size: 0.24, grav: 0.55, spread: s.size * 0.5 });
+      this.particles.burst(s.x, y, s.z, 9 + s.size * 3, accent,
+        { speed: 1.25, up: 1.6, life: 2.5, size: 0.2, grav: 0.45, spread: s.size * 0.55 });
+      // ...and a warm ring at the foot of the building, which reads at any zoom
+      this.decals.add(s.x, s.z, s.size * 1.3 + 0.9, 0xe8c15a, 1.4, 0.35);
+    }
+    if (f.i >= f.stops.length && f.t > f.stops.length * 0.09 + 2.4) this.festival = null;
   }
 
   private updateCamera(rdt: number) {
