@@ -2,7 +2,7 @@
 // escalating attack waves. Issues orders through the same command API
 // as the player.
 import {
-  BUILDINGS, DIFFICULTY, MAX_LEVEL, SETTLEMENTS, SIEGE_UNITS, trainableAt, UNITS
+  BUILDINGS, DIFFICULTY, ENC, MAX_LEVEL, POP_MAX, SETTLEMENTS, SIEGE_UNITS, trainableAt, UNITS
 } from '../core/config';
 import type { Building, Difficulty, NodeKind, ResType, Unit, UnitTypeId } from '../core/types';
 import { RES_OF_NODE } from '../core/types';
@@ -19,6 +19,8 @@ export class AIController {
   private nextWaveAt: number;
   private diff: (typeof DIFFICULTY)['normal'];
   private lastStorehouseAt = -999;
+  private nextCourtAt = 90;
+  private envoys: number[] = [];
   private defendUntil = 0;
   private attackers: number[] = [];
   private wonderRushAt = 0;
@@ -42,13 +44,18 @@ export class AIController {
 
     const units = [...w.units.values()].filter(u => u.owner === OWNER);
     const villagers = units.filter(u => u.type === 'villager');
-    const military = units.filter(u => u.type !== 'villager' && u.type !== 'boat');
+    const military = units.filter(u =>
+      u.type !== 'villager' && u.type !== 'boat' && u.type !== 'scout');
     const buildings = [...w.buildings.values()].filter(b => b.owner === OWNER);
 
     this.defense(tc, military);
     // Settlement growth gets first claim on the town center queue, otherwise
     // villager production would keep it busy forever and the AI would never advance.
     this.levelUp(tc, villagers.length);
+    // ...and the scout gets the next claim, for the same reason: villager
+    // production is continuous, so a scout queued "when there is room" is a
+    // scout that never gets built.
+    this.scouting(tc, units);
     this.economy(tc, villagers, buildings);
     this.construction(tc, villagers, buildings);
     this.trainMilitary(buildings, military.length);
@@ -66,6 +73,7 @@ export class AIController {
       return;
     }
     this.claimForts(military);
+    this.courtVillages(units);
     this.offense(tc, military);
   }
 
@@ -230,7 +238,7 @@ export class AIController {
     };
 
     // Housing
-    if (p.popCap - p.popUsed <= 3 && p.popCap < 45) {
+    if (p.popCap - p.popUsed <= 3 && p.popCap < POP_MAX) {
       if (place('house', tc.x + 5, tc.z - 4)) return;
     }
     // Barracks
@@ -368,7 +376,9 @@ export class AIController {
     const free = military.filter(u => !this.claimers.includes(u.id) && !SIEGE_UNITS.has(u.type));
     if (free.length < 3) return;
     for (const site of w.sites) {
-      if (site.kind !== 'outpost' || site.state === 'cleared' || site.holder === OWNER) continue;
+      const claimable = site.kind === 'outpost' ||
+        (site.kind === 'landmark' && (site.landmark === 'beacon' || site.landmark === 'obelisk'));
+      if (!claimable || site.state === 'cleared' || site.holder === OWNER) continue;
       // send the two nearest spare soldiers to stand in it
       const squad = free
         .sort((a, b) => dist2(a.x, a.z, site.x, site.z) - dist2(b.x, b.z, site.x, site.z))
@@ -379,6 +389,57 @@ export class AIController {
       w.cmdMove(ids, site.x, site.z, true);
       return;
     }
+  }
+
+  /**
+   * The rival wants the map known too. One scout, kept walking — and replaced
+   * when it dies, because a rival who stops exploring hands the whole wilds
+   * layer to the player.
+   */
+  private scouting(tc: Building, units: Unit[]) {
+    const w = this.world;
+    const scouts = units.filter(u => u.type === 'scout');
+    if (scouts.length === 0) {
+      const p = w.players[OWNER];
+      const queued = tc.queue.some(q => q.kind === 'unit' && q.unit === 'scout');
+      if (!queued && w.time > 20 && tc.queue.length < 2 && p.res.food > 90 && p.popUsed < p.popCap) {
+        w.startTrain(tc.id, 'scout');
+      }
+      return;
+    }
+    for (const s of scouts) {
+      if (s.task.type === 'idle') w.cmdExplore([s.id]);
+    }
+  }
+
+  /**
+   * Free villages are worth more courted than burned, and a village the rival
+   * courts is a village denied to the player. The AI sends an envoy and pays
+   * when it can afford to — it never sacks one, which keeps the burning to
+   * whoever chooses it.
+   */
+  private courtVillages(units: Unit[]) {
+    const w = this.world;
+    if (w.time < this.nextCourtAt || w.sacker[OWNER]) return;
+    const p = w.players[OWNER];
+    this.envoys = this.envoys.filter(id => w.units.has(id));
+    const target = w.sites.find(s =>
+      s.kind === 'village' && s.state !== 'cleared' && s.holder !== OWNER);
+    if (!target) { this.nextCourtAt = w.time + 120; return; }
+    this.nextCourtAt = w.time + 20;
+    // enough for the headman and a meal left over — a village is worth more
+    // courted than a fourth villager is worth trained
+    if (p.res.food < ENC.courtFood + 60) return;
+    // already standing there? pay them
+    if (w.courtVillage(target.id, OWNER)) { this.envoys = []; return; }
+    if (this.envoys.length > 0) return;
+    const spare = units
+      .filter(u => u.type !== 'villager' && u.type !== 'boat' && u.type !== 'scout' &&
+        u.type !== 'tradecart' && !this.attackers.includes(u.id) && !this.claimers.includes(u.id))
+      .sort((a, b) => dist2(a.x, a.z, target.x, target.z) - dist2(b.x, b.z, target.x, target.z));
+    if (spare.length < 2) return;
+    this.envoys = [spare[0].id];
+    w.cmdMove(this.envoys, target.x, target.z);
   }
 
   private offense(tc: Building, military: Unit[]) {

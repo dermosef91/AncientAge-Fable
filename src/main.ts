@@ -6,6 +6,7 @@ import { pick, makeRng } from './core/utils';
 import { AIController } from './sim/ai';
 import { Encounters } from './sim/encounters';
 import { genMap } from './sim/map';
+import { recomputeAdjacency } from './sim/districts';
 import { simTick } from './sim/sim';
 import { World } from './sim/world';
 import { loadAssets } from './render/assets';
@@ -234,6 +235,10 @@ function exposeDebug() {
       if (!game) return;
       game.world.explored.fill(1);
       game.view.terrain.updateFog();
+    },
+    /** Re-read the shape of the city (districts.ts) without waiting for a build. */
+    districts(owner = 0) {
+      if (game) recomputeAdjacency(game.world, owner);
     },
     win() {
       if (!game) return;

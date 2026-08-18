@@ -119,6 +119,21 @@ export class Sound {
   trained() { if (!this.throttled('trained', 300)) { this.tone(523, 0.08, { type: 'triangle', gain: 0.07 }); this.tone(659, 0.1, { type: 'triangle', gain: 0.07, delay: 0.07 }); } }
   built() { this.tone(392, 0.1, { type: 'triangle', gain: 0.09 }); this.tone(523, 0.12, { type: 'triangle', gain: 0.09, delay: 0.08 }); this.tone(659, 0.16, { type: 'triangle', gain: 0.09, delay: 0.16 }); }
   research() { for (let i = 0; i < 4; i++) this.tone(523 * Math.pow(1.25, i), 0.12, { type: 'sine', gain: 0.06, delay: i * 0.09 }); }
+  /**
+   * The settlement rises and the city turns out for it: a horn, a rising
+   * fanfare over a drum, and a scatter of pipes on top. Longer and warmer than
+   * `built` — this is the one moment of the match that is nobody's emergency.
+   */
+  festival() {
+    this.tone(196, 0.5, { type: 'sawtooth', gain: 0.07, slide: 208 });
+    const notes = [392, 494, 587, 784];
+    notes.forEach((n, i) => this.tone(n, 0.34, { type: 'triangle', gain: 0.085, delay: 0.1 + i * 0.11 }));
+    this.tone(1175, 0.5, { type: 'sine', gain: 0.05, delay: 0.56 });
+    for (let i = 0; i < 3; i++) {
+      this.noise(0.09, { freq: 300, type: 'lowpass', gain: 0.1, delay: i * 0.26 });
+    }
+  }
+
   victory() {
     const notes = [392, 523, 659, 784, 1046];
     notes.forEach((n, i) => this.tone(n, 0.5, { type: 'triangle', gain: 0.12, delay: i * 0.16 }));

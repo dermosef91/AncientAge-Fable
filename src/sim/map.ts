@@ -4,6 +4,7 @@
 // the wilds between them are seeded with encounters worth marching out for.
 import { ENC, MAP_H, MAP_W, WILDS } from '../core/config';
 import type { BuildingTypeId, EncounterKind, EncounterSite, Faction, UnitTypeId } from '../core/types';
+import { LANDMARK_KINDS } from '../core/types';
 import { clamp, dist, fbm, makeNoise2D, makeRng } from '../core/utils';
 import { F_BLOCK, F_BUILDING, F_WATER, landPassable, nearestFree } from './pathfinding';
 import type { World } from './world';
@@ -861,6 +862,33 @@ export function genMap(world: World, seed: number, playerFaction: Faction, aiFac
       if (!site.buildingId) { world.sites.pop(); continue; }
       site.state = 'active';
     }
+    // Free villages: a people of their own, out where both sides can reach them.
+    const VILLAGE_NAMES = [
+      'Thornfold', 'Ashmere', 'Deepwell', 'Stonyford', 'Harrowmoor',
+      'Elderbrook', 'Callowdene', 'Marrowhill'
+    ];
+    for (let i = 0; i < ENC.villageSites; i++) {
+      const s = pickSpot(2, 40);
+      if (!s) continue;
+      const site = addSite('village', s.cx + 1, s.cz + 1);
+      site.name = VILLAGE_NAMES[Math.floor(rng() * VILLAGE_NAMES.length)];
+      site.taxedBy = -1;
+      site.hutIds = [];
+      // huts around a common green, dropped wherever the ground takes them
+      for (let h = 0; h < ENC.villageHuts; h++) {
+        const a = (h / ENC.villageHuts) * Math.PI * 2 + rng() * 0.4;
+        const r = 3 + rng() * 1.6;
+        const hx = Math.round(site.x + Math.cos(a) * r) - 1;
+        const hz = Math.round(site.z + Math.sin(a) * r) - 1;
+        if (!openFor(hx, hz, 2)) continue;
+        const id = wildBuilding('hut', hx, hz);
+        if (id) site.hutIds.push(id);
+      }
+      if (site.hutIds.length < 2) { world.sites.pop(); continue; }
+      spawnPack(site, 'refugee', ENC.villageFolk, 2.2);
+      site.state = 'active';
+    }
+
     // one Golden Idol, as far from both thrones as the land allows
     {
       let best: { cx: number; cz: number } | null = null, bestScore = -1;
@@ -880,6 +908,48 @@ export function genMap(world: World, seed: number, playerFaction: Faction, aiFac
         site.buildingId = wildBuilding('pedestal', best.cx, best.cz);
         if (!site.buildingId) world.sites.pop();
         else site.state = 'active';
+      }
+    }
+
+    // One landmark per map, and it is never the same one twice running. It
+    // sits further out than anything else, which is the whole argument for
+    // owning a scout.
+    {
+      const which = Math.floor(rng() * LANDMARK_KINDS.length);
+      const kind = LANDMARK_KINDS[which];
+      const size = kind === 'obelisk' ? 1 : 2;
+      const s = pickSpot(size, ENC.landmarkMinBase) ?? pickSpot(size, 40);
+      if (s) {
+        const site = addSite('landmark', s.cx + size / 2, s.cz + size / 2, which);
+        site.landmark = kind;
+        if (kind === 'grove') {
+          // ancient trees, four times the timber, and they never come back.
+          // Set in a loose ring with gaps so a stand can never wall off a pass.
+          site.nodeIds = [];
+          for (let i = 0; i < ENC.groveTrees; i++) {
+            const a = (i / ENC.groveTrees) * Math.PI * 2;
+            const r = 1.6 + (i % 3) * 1.3;
+            const cx = Math.round(site.x + Math.cos(a) * r);
+            const cz = Math.round(site.z + Math.sin(a) * r);
+            if (!landPassable(world.grid, cx, cz)) continue;
+            site.nodeIds.push(world.addNode('tree', cx, cz, Math.floor(rng() * 3), ENC.groveMul).id);
+          }
+          if (!landReachable(playerStart.x, playerStart.z, enemyStart.x, enemyStart.z)) {
+            for (const id of site.nodeIds) {
+              const n = world.nodes.get(id);
+              if (n) world.removeNode(n);
+            }
+            world.sites.pop();
+          } else if (site.nodeIds.length < 4) {
+            world.sites.pop();
+          } else {
+            site.state = 'active';
+          }
+        } else {
+          site.buildingId = wildBuilding(kind, s.cx, s.cz);
+          if (!site.buildingId) world.sites.pop();
+          else site.state = 'active';
+        }
       }
     }
   }

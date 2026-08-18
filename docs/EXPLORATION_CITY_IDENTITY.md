@@ -20,7 +20,19 @@ the work lands), **Risk** (the tradeoff). Tags: **Impact** · **Effort**
 
 ## A. Exploration — make the map worth walking
 
-### 1. A scout, and a scout that grows
+### 1. A scout, and a scout that grows — ✅ **shipped**
+
+> **What landed.** A `scout` at Camp level (35 food, speed 4.6, vision 15, 45 HP,
+> attack 2, cannot gather or build) trained at the Town Center, plus an
+> `Explore` order that walks the frontier on a coarse 33×33 summary of the fog
+> and picks the next patch on arrival. Pathfinder rank is credited from the
+> encounter layer — one rank per site per side, capped at five, worth +1 vision
+> and +4% speed each — and a scout that is shot at runs for home rather than
+> fighting. It is excluded from the army button, from attack orders, from
+> military technologies and from the "train soldiers" objective, so it never
+> quietly becomes a cheap skirmisher. The rival trains one in its opening and
+> explores against its own coarse record of where it has been, since it keeps
+> no fog to read.
 
 **Today.** There is no scout unit. Every land unit reveals a fixed radius of 8
 tiles and every boat 9.5 (`updateFog`, `src/sim/sim.ts:975`), so the cheapest
@@ -141,7 +153,18 @@ currently thinnest.
 
 ---
 
-### 4. Named landmarks with one mechanic each
+### 4. Named landmarks with one mechanic each — ✅ **shipped**
+
+> **What landed.** One landmark per map, placed further out than any other
+> site, rolled from four rather than the six proposed: **Beacon Hill** and the
+> **Obelisk of the Lost** are claimed with the ruined fort's capture logic
+> (refactored into a shared `stepCapture`) and grant, respectively, a permanent
+> reveal plus +3 vision on every unit, and 0.6 HP/s to the holder's units
+> anywhere on the map; the **Amber Grove** seeds nine tree nodes at four times
+> the usual timber, laid in a gapped ring and rolled back if it would block the
+> land route; the **Oracle Spring** reveals the rival's town and names the
+> composition of their army when a villager drinks. The Sunken Temple and Salt
+> Flats did not land.
 
 **Today.** Seven site kinds, all generic and all repeated: 6 herds, 2 dens, 2
 camps, 6 cairns, 2 refugee groups, 2 forts, 1 idol (`ENC`,
@@ -252,7 +275,18 @@ just feel randomly unlucky.
 
 ---
 
-### 7. Free peoples: neutral villages you can court or crush
+### 7. Free peoples: neutral villages you can court or crush — ✅ **shipped**
+
+> **What landed.** Two Free Villages per map — a named cluster of huts with
+> their own folk, owned by the wilds and hostile to nobody. Courting costs 200
+> food and an envoy standing among them, and pays 0.4 gold/s plus two
+> **Slingers** (a new unit that cannot be trained, only given). Taxing needs
+> three soldiers in the village and pays 0.18 gold/s, stopping twelve seconds
+> after the last one leaves. Sacking means razing every hut in combat: 250 in
+> mixed loot, and a permanent mark on that player which every other village
+> reads — they will not treat with them again. The rival courts villages on the
+> same terms and never sacks one. Allegiance shows as a coloured ring on the
+> minimap and a line in the selection panel.
 
 **Today.** The wilds are wolves, boar, deserters and refugees — all either food,
 loot or hazard. The deserters' camp is the only site that offers a *choice*
@@ -406,7 +440,18 @@ one live at a time, and never let one point at something the player cannot reach
 
 ## B. The city — make building it the reward
 
-### 11. Districts and adjacency
+### 11. Districts and adjacency — ✅ **shipped**
+
+> **What landed.** `src/sim/districts.ts`, recomputed whenever a player's city
+> changes shape (built, razed, upgraded, changed hands, or the settlement grew
+> and dressed itself). Six bonuses shipped: a street of houses (+1 pop, +1 more
+> beside a garden or plaza), the drill yard (−15% train time), the exchange
+> (+20% trade gold), the field system (+10% farm yield), the depot (+10%
+> gathering near a storehouse in a rich seam) and the sacred games (+50% heal
+> range). Population became a derived quantity rather than an accumulated one,
+> which also fixed a latent bug where the `POP_MAX` clamp could permanently eat
+> housing. The placement ghost previews the bonus live, because an adjacency
+> system nobody can see before committing is not a system.
 
 **Today.** Placement is deliberate — ghost, rotate, confirm — but placement has
 no consequences. A house is worth exactly 5 population whether it stands in a
@@ -589,7 +634,16 @@ default and make auto-start an option.
 
 ---
 
-### 16. Roads that actually carry the traffic
+### 16. Roads that actually carry the traffic — ✅ **shipped**
+
+> **What landed.** A per-cell surface index (`World.civicKindAt`) maintained by
+> the civic layer, and one multiplier in the movement step: 1.25× on laid
+> stone, 1.12× on a worn path. Trade carts earn up to +15% on a route that runs
+> on stone. The **Causeway** (Village, 8 stone) is drag-placed like a wall but
+> is civic scenery rather than a building — it claims no cell, blocks nothing,
+> upgrades a dirt path in place, and is swept away by any foundation laid over
+> it. Measured: a villager crossing paved ground moves 0.337 world units per
+> tick against 0.27 on grass.
 
 **Today.** Roads are pure scenery — the README says so plainly, and `civic.ts`
 opens by saying none of it is a building and none of it claims a cell. Meanwhile
@@ -659,7 +713,13 @@ minute 10.
 
 ---
 
-### 18. Festivals, and a city that is inhabited
+### 18. Festivals, and a city that is inhabited — 🟡 **festivals shipped**
+
+> **What landed.** The festival half only. Every settlement level-up grants a
+> 90-second boon (+15% gathering, +25% building) and throws a visible
+> celebration: petals and faction colours burst over one building after
+> another, rolling outward from the town center, over a gold ring on the ground
+> and a horn-and-fanfare sting. Ambient citizens and market day did not land.
 
 **Today.** The city has no people in it except the ones you built. Villagers are
 all workers; the streets, plazas and gardens the game so carefully lays are
@@ -693,7 +753,16 @@ about this (one draw call per entity, instanced clutter).
 
 ---
 
-### 19. Tell me how my city is doing
+### 19. Tell me how my city is doing — ✅ **shipped**
+
+> **What landed.** A City panel on the right rail, in the tech tree's idiom.
+> Income per resource per minute with a sparkline, drawn from a cumulative
+> sample the *simulation* takes every three seconds (so the rate is honest
+> under pause and fast-forward alike); a villager-by-job breakdown that selects
+> that group when tapped; what the quarters are earning from #11; and an
+> estimate of the rival that counts only what stands on ground the player has
+> actually walked, with the percentage of the map explored stated plainly
+> beside it.
 
 **Today.** Four resource counters and a population number. There is no rate of
 income, no idea where your villagers are, no history, and no way to know whether

@@ -92,6 +92,8 @@ export interface UnitDef {
   water?: boolean;
   /** Settlement level required to train. */
   level: number;
+  /** How far this unit lifts the fog. Omitted = the ordinary 8 (9.5 afloat). */
+  vision?: number;
   desc: string;
 }
 
@@ -101,6 +103,13 @@ export const UNITS: Record<UnitTypeId, UnitDef> = {
     meleeArmor: 0, pierceArmor: 0, armorClass: 'worker', dmgType: 'melee',
     speed: 2.7, trainTime: 11, aggro: 3.5, pop: 1, radius: 0.26, cooldown: 1.4, level: 0,
     desc: 'Gathers resources, builds and repairs.'
+  },
+  scout: {
+    name: 'Scout', short: 'Scout', cost: { food: 35 }, hp: 45, atk: 2, range: 0,
+    meleeArmor: 0, pierceArmor: 1, armorClass: 'worker', dmgType: 'melee',
+    speed: 4.6, trainTime: 12, aggro: 0, pop: 1, radius: 0.26, cooldown: 1.6, level: 0,
+    vision: 15,
+    desc: 'Runs the country and comes back knowing it. Every site found widens the eye and quickens the step. No use in a fight.'
   },
   spearman: {
     name: 'Spearman', short: 'Spearman', cost: { food: 55, wood: 20 }, hp: 55, atk: 7, range: 0,
@@ -167,6 +176,15 @@ export const UNITS: Record<UnitTypeId, UnitDef> = {
     meleeArmor: 0, pierceArmor: 0, armorClass: 'worker', dmgType: 'melee',
     speed: 3.1, trainTime: 16, aggro: 0, pop: 1, radius: 0.36, cooldown: 1, level: 2,
     desc: 'Hauls goods to the trading post and returns with gold.'
+  },
+  // ---- gifted by a courted free village (never trained) ----
+  slinger: {
+    name: 'Slinger', short: 'Slinger', cost: {}, hp: 46, atk: 6, range: 4.6,
+    meleeArmor: 0, pierceArmor: 0, armorClass: 'ranged', dmgType: 'pierce',
+    bonus: { infantry: 2 },
+    speed: 3.05, trainTime: 0, aggro: 7, pop: 1, radius: 0.26,
+    projectile: 'arrow', cooldown: 1.7, level: 0,
+    desc: 'A herdsman with a sling, fighting for the people who sent him. Cannot be trained — only given.'
   },
   // ---- the wilds (owner 2, never trained) ----
   gazelle: {
@@ -242,8 +260,8 @@ export interface BuildingDef {
 export const BUILDINGS: Record<BuildingTypeId, BuildingDef> = {
   towncenter: {
     name: 'Town Center', cost: { wood: 220, stone: 180 }, hp: 1800, size: 4, buildTime: 70,
-    armor: 2, pop: 5, dropoff: true, trains: ['villager'], level: 3,
-    desc: 'Heart of your settlement. Trains villagers and stores goods.'
+    armor: 2, pop: 5, dropoff: true, trains: ['villager', 'scout'], level: 3,
+    desc: 'Heart of your settlement. Trains villagers and scouts, and stores goods.'
   },
   house: {
     name: 'House', cost: { wood: 30 }, hp: 250, size: 2, buildTime: 12,
@@ -340,7 +358,28 @@ export const BUILDINGS: Record<BuildingTypeId, BuildingDef> = {
     armor: 2, level: 5,
     desc: 'The crowning work of your people. Complete it and hold it to win.'
   },
+  causeway: {
+    name: 'Causeway', cost: { stone: 8 }, hp: 1, size: 1, buildTime: 0,
+    walkable: true, level: 2,
+    desc: 'Stone laid where your people walk. Nothing stands on it and nothing blocks it — but everyone moves faster along it.'
+  },
   // ---- encounter props (owner 2, placed at map gen, never in the build menu) ----
+  hut: {
+    name: 'Hut', cost: {}, hp: 200, size: 2, buildTime: 1, level: 0,
+    desc: 'A free people live here. Their headman will treat with whoever comes in peace.'
+  },
+  beacon: {
+    name: 'Beacon Hill', cost: {}, hp: 700, size: 2, buildTime: 1, armor: 2, level: 0,
+    desc: 'The high ground of the whole map. Light it and you see the country; everyone else sees the fire.'
+  },
+  obelisk: {
+    name: 'Obelisk of the Lost', cost: {}, hp: 600, size: 1, buildTime: 1, armor: 2, level: 0,
+    desc: 'A stone raised for a forgotten army. Hold it and your own are mended wherever they stand.'
+  },
+  spring: {
+    name: 'Oracle Spring', cost: {}, hp: 260, size: 2, buildTime: 1, level: 0,
+    desc: 'Send a villager to drink, and what the rival is building will be known to you.'
+  },
   den: {
     name: 'Wolf Den', cost: {}, hp: 340, size: 2, buildTime: 1, level: 0,
     desc: 'A pack hunts these lands. Raze the den to end the raids.'
@@ -374,7 +413,7 @@ export const BUILD_MENU: BuildingTypeId[] = [
   'barracks', 'range', 'siegeworks',
   'dock', 'market', 'shrine',
   'academy', 'tower', 'wall',
-  'lighthouse', 'amphitheater', 'forum',
+  'causeway', 'lighthouse', 'amphitheater', 'forum',
   'monument'
 ];
 export const BUILD_MENU_WIDE: BuildingTypeId[] = ['towncenter', 'wonder'];
@@ -502,7 +541,11 @@ export interface BoonDef {
 export const BOONS: Record<string, BoonDef> = {
   pelts: { name: 'Wolf Pelts', desc: 'Villagers are hardier (+25% HP)', dur: 0 },
   gratitude: { name: 'Gratitude', desc: 'The rescued lend their hands (+20% build speed)', dur: 120 },
-  idol: { name: 'Golden Idol', desc: 'A steady trickle of gold', dur: 0 }
+  idol: { name: 'Golden Idol', desc: 'A steady trickle of gold', dur: 0 },
+  festival: { name: 'Festival', desc: 'The city celebrates (+15% gathering, +25% building)', dur: 90 },
+  beacon: { name: 'Beacon Hill', desc: 'The fire is yours — every unit sees further', dur: 0 },
+  obelisk: { name: 'Obelisk of the Lost', desc: 'Your wounded mend wherever they stand', dur: 0 },
+  tribute: { name: 'Tributary', desc: 'A free people pay you in gold', dur: 0 }
 };
 
 /** Balance knobs for the encounter layer. */
@@ -525,7 +568,73 @@ export const ENC = {
   // ruined forts: contested all match, never spent
   outpostSites: 2, captureR: 4.5, captureTime: 14, captureDecay: 0.35,
   /** How far a held fort sees. Wide enough to be worth holding. */
-  outpostVision: 17
+  outpostVision: 17,
+  // free villages: courted, taxed at spear-point, or sacked
+  villageSites: 2, villageHuts: 5, villageFolk: 4,
+  /** How near a unit must stand for the headman to treat with it. */
+  villageR: 6,
+  courtFood: 200, courtGift: 2,
+  /** Gold per second a tributary pays, and what taking it by force pays instead. */
+  tributeRate: 0.4, taxRate: 0.18,
+  /** Soldiers that must stand in the village to hold it at spear-point. */
+  taxSoldiers: 3,
+  /** Seconds a taxed village keeps paying after the last soldier walks away. */
+  taxGrace: 12,
+  sackLoot: 250,
+  // the one landmark
+  landmarkMinBase: 52, landmarkR: 4.5,
+  /** Beacon Hill: how much country the fire shows its holder. */
+  beaconReveal: 34, beaconVision: 3,
+  /** Obelisk of the Lost: hp per second, anywhere on the map. */
+  obeliskHeal: 0.6,
+  /** Amber Grove: how many trees, and how much richer than an ordinary one. */
+  groveTrees: 9, groveMul: 4,
+  /** Oracle Spring: how near a villager must stand to drink. */
+  springR: 2.6
+};
+
+// ---------------------------------------------------------------- exploration
+/** The scout: what a season in the field is worth. */
+export const SCOUT = {
+  maxRank: 5,
+  visionPerRank: 1,
+  speedPerRank: 0.04,
+  /** Frontier scan granularity, in cells. 264/8 = a 33x33 summary. */
+  block: 8,
+  /** Unknown cells a block needs before it is worth walking to. */
+  minUnknown: 14
+};
+
+// ---------------------------------------------------------------- streets
+/**
+ * What the ground underfoot is worth. Stone carries traffic; a worn path is
+ * better than open country but is still only dirt.
+ */
+export const ROAD_SPEED = { road: 1.25, path: 1.12 };
+/** A trade route entirely on stone is worth this much more gold. */
+export const ROAD_TRADE_BONUS = 0.15;
+
+// ---------------------------------------------------------------- districts
+/**
+ * Adjacency: what standing next to the right neighbour is worth. Every bonus
+ * is small on purpose — a handsome city and an optimal one are within a few
+ * percent of each other.
+ */
+export const ADJ = {
+  /** Houses: neighbours within this range, and how many make a street. */
+  houseR: 6, houseNeighbours: 2,
+  /** ...and greenery or paving within this range is worth another head. */
+  ornamentR: 4.5,
+  /** Drill yard: distinct military workshops within this range. */
+  drillR: 9, drillTypes: 2, drillMul: 0.85,
+  /** Exchange: a market with the forum's clerks at hand. */
+  exchangeR: 9, exchangeMul: 1.2,
+  /** Field system: farms worked as one. */
+  farmR: 6, farmNeighbours: 2, farmMul: 1.1,
+  /** Depot: a storehouse standing in a rich seam. */
+  depotR: 6, depotNodes: 3, depotMul: 1.1,
+  /** Sacred games: a sanctuary beside the games. */
+  sacredR: 11, sacredMul: 1.5
 };
 
 // ---------------------------------------------------------------- trade

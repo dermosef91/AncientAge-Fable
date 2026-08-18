@@ -101,6 +101,43 @@ export class Minimap {
     // encounter sites still worth a march: smaller gold diamonds
     for (const site of w.sites) {
       if (!site.discovered || site.state === 'cleared') continue;
+      if (site.kind === 'village') {
+        // a free people: a small ring, filled by whoever they pay
+        const fill = site.holder === 0 ? '#7fe89a'
+          : site.holder === 1 ? '#f06a55'
+          : site.taxedBy === 0 ? '#bfe6c6'
+          : site.taxedBy === 1 ? '#e6a99c'
+          : '#e8dcbc';
+        ctx.beginPath();
+        ctx.arc(site.x * s, site.z * s, 3, 0, Math.PI * 2);
+        ctx.fillStyle = fill;
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(42,31,12,0.9)';
+        ctx.lineWidth = 1.1;
+        ctx.stroke();
+        continue;
+      }
+      if (site.kind === 'landmark') {
+        // the one landmark, and it is drawn like nothing else on the map
+        const held = site.holder === 0 ? '#9dffc0' : site.holder === 1 ? '#ff9a86' : '#ffe08a';
+        ctx.save();
+        ctx.translate(site.x * s, site.z * s);
+        ctx.fillStyle = held;
+        ctx.strokeStyle = 'rgba(42,31,12,0.9)';
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        for (let i = 0; i < 5; i++) {
+          const a = -Math.PI / 2 + (i / 5) * Math.PI * 2;
+          const a2 = a + Math.PI / 5;
+          ctx.lineTo(Math.cos(a) * 4.2, Math.sin(a) * 4.2);
+          ctx.lineTo(Math.cos(a2) * 1.9, Math.sin(a2) * 1.9);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+        continue;
+      }
       if (site.kind === 'outpost') {
         // a fort is a hold, not an errand: square, and coloured by who has it
         const fill = site.holder === 0 ? '#7fe89a' : site.holder === 1 ? '#f06a55' : '#cfc3a4';
