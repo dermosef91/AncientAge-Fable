@@ -141,6 +141,12 @@ export interface Unit {
   relic?: boolean;          // carrying the Golden Idol
   /** Scouts: sites found, up to SCOUT.maxRank. Widens the eye, quickens the step. */
   rank?: number;
+  /**
+   * Scouts: the Explore order is still standing. Kept across a flight from
+   * danger, so a scout that is shot at runs, waits, and then goes back to work
+   * rather than standing at home for the rest of the match.
+   */
+  exploring?: boolean;
 }
 
 export interface QueueItem {

@@ -251,6 +251,7 @@ export class InputController {
     const w = this.world;
     for (const u of this.ownUnits()) {
       w.releaseTask(u);
+      u.exploring = false;
       u.task = { type: 'idle' };
       u.path = null;
       u.resume = null;

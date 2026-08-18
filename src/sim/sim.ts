@@ -277,6 +277,14 @@ function updateUnit(world: World, u: Unit, dt: number) {
   switch (u.task.type) {
     case 'idle': {
       u.idleT += dt;
+      // A scout that ran from something goes back to walking the frontier once
+      // it has had a moment: the Explore order outlives the scare that broke it.
+      if (u.type === 'scout' && u.exploring && u.idleT > 2) {
+        u.task = { type: 'explore' };
+        u.path = null;
+        u.gatherT = 0;
+        break;
+      }
       if (u.scanT <= 0 && !u.water) {
         u.scanT = 0.4 + Math.random() * 0.2;
         const def = UNITS[u.type];
@@ -376,6 +384,7 @@ function updateExplore(world: World, u: Unit, dt: number, speed: number) {
     if (!next) {
       u.task = { type: 'idle' };
       u.idleT = 0;
+      u.exploring = false;
       if (u.owner === 0) {
         world.emit({ t: 'toast', owner: 0, msg: 'The scout has walked the whole country', kind: 'good' });
       }

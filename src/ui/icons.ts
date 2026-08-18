@@ -86,6 +86,28 @@ const P: Record<string, string> = {
     <path d="M12 9v4.6" stroke="${G.dark}" stroke-width="2.2" stroke-linecap="round"/>
     <circle cx="12" cy="16.8" r="1.3" fill="${G.dark}"/>`,
 
+  // ---------- unit stats ----------
+  // Small monochrome glyphs for the selection panel's stat row. Drawn in
+  // currentColor so they take on the row's muted text colour and stay quiet
+  // next to the numbers they label.
+  statAtk: `<g fill="currentColor" transform="rotate(45 12 11.5)">
+      <path d="M12 1.6l1.8 3.7v10h-3.6V5.3z"/>
+      <rect x="8.3" y="15.7" width="7.4" height="2.4" rx="1.2"/>
+      <rect x="10.8" y="18" width="2.4" height="2.6"/>
+      <circle cx="12" cy="21.4" r="1.7"/>
+    </g>`,
+  statArm: `<path d="M12 2.4l8 3v6.3c0 4.8-3.3 8.8-8 10.6-4.7-1.8-8-5.8-8-10.6V5.4z" fill="currentColor"/>`,
+  statRng: `<g stroke="currentColor" fill="none" stroke-linecap="round">
+      <path d="M5.6 2.4C17.4 6 17.4 18 5.6 21.6" stroke-width="2.4"/>
+      <path d="M5.6 2.4v19.2" stroke-width="1.2"/>
+      <path d="M2.6 12h14" stroke-width="2"/>
+    </g>
+    <path d="M22.4 12l-6.2-3.4v6.8z" fill="currentColor"/>`,
+  statSpd: `<g stroke="currentColor" stroke-width="2.8" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M5 5.2L11.8 12 5 18.8"/>
+      <path d="M12.6 5.2L19.4 12l-6.8 6.8"/>
+    </g>`,
+
   // ---------- ui / status ----------
   // Two crossed swords. They meet high on the blades so the guards, grips and
   // pommels stay clear of each other — the silhouette reads as two swords even

@@ -568,6 +568,7 @@ export class World {
   cmdMove(ids: number[], x: number, z: number, attackMove = false) {
     const movers = ids.map(id => this.units.get(id)).filter((u): u is Unit => !!u);
     if (movers.length === 0) return;
+    for (const u of movers) u.exploring = false;
     const slots = formationSlots(x, z, movers.length);
     movers.sort((a, b) => dist2(a.x, a.z, x, z) - dist2(b.x, b.z, x, z));
     for (let i = 0; i < movers.length; i++) {
@@ -588,6 +589,7 @@ export class World {
     for (const id of ids) {
       const u = this.units.get(id);
       if (!u) continue;
+      u.exploring = false;
       if (u.type === 'villager' && n.kind !== 'fish') {
         this.releaseTask(u);
         u.task = { type: 'gather', nodeId };
@@ -616,7 +618,7 @@ export class World {
     }
     if (scouts.length > 0) {
       const t = this.units.get(targetId) ?? this.buildings.get(targetId);
-      if (t) this.cmdMove(scouts, t.x, t.z, false);
+      if (t) this.cmdMove(scouts, t.x, t.z, false);   // clears the explore order
     }
     for (const id of ids) {
       const u = this.units.get(id);
@@ -864,6 +866,7 @@ export class World {
       if (!u || u.type !== 'scout') continue;
       this.releaseTask(u);
       u.task = { type: 'explore' };
+      u.exploring = true;
       u.path = null;
       u.resume = null;
       u.hold = false;
