@@ -364,6 +364,8 @@ img.thumb, img.bthumb, img.pthumb, img.chip-thumb, img.qthumb, img.act-thumb, im
   position: relative;
   line-height: 1.1;
   padding: 3px 2px;
+  /* currentColor glyphs (build/gather/stop) pick this up */
+  color: var(--text-dim);
 }
 .act-btn img.act-thumb { width: 28px; height: 28px; object-fit: contain; margin-bottom: -2px; }
 .act-btn .lbl { font-size: 8.5px; color: var(--text-dim); font-weight: 700; letter-spacing: 0.1px; }
@@ -371,9 +373,19 @@ img.thumb, img.bthumb, img.pthumb, img.chip-thumb, img.qthumb, img.act-thumb, im
   display: flex; gap: 3px; align-items: center; justify-content: center;
   font-size: 8px; color: var(--gold); white-space: nowrap; font-weight: 700;
 }
-.act-btn.primary { background: linear-gradient(160deg, rgba(90, 62, 20, 0.92), rgba(48, 33, 12, 0.92)); border-color: var(--border-strong); }
+/* The one action to reach for: filled gold, dark glyph — same language as
+   the To Battle banner. */
+.act-btn.primary {
+  background: linear-gradient(180deg, #f0d492 0%, #d9ad5c 48%, #b0842f 100%);
+  border-color: rgba(246, 227, 174, 0.65);
+  color: #3a2708;
+  box-shadow: 0 4px 14px rgba(198, 152, 66, 0.3), var(--shadow);
+}
+.act-btn.primary .lbl { color: #4a3410; }
+.act-btn.primary .cost { color: #5a4210; }
 .act-btn.danger { border-color: rgba(224, 90, 68, 0.5); }
-.act-btn.toggled { background: rgba(224, 90, 68, 0.35); border-color: var(--red); }
+.act-btn.toggled { background: rgba(224, 90, 68, 0.35); border-color: var(--red); color: var(--text); }
+.act-btn.toggled .lbl { color: var(--text); }
 
 .cost-chip { display: inline-flex; align-items: center; gap: 2px; font-variant-numeric: tabular-nums; }
 

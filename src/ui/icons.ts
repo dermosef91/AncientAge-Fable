@@ -47,34 +47,72 @@ const P: Record<string, string> = {
     <path d="M12.4 19.4c0-2.8 2-4.8 4.4-4.8s4.4 2 4.4 4.8z" fill="#a8bccb"/>`,
 
   // ---------- actions ----------
-  build: `<rect x="10.4" y="10" width="2.9" height="11.4" rx="1.4" transform="rotate(-28 11.8 15.7)" fill="${G.woodDark}"/>
-    <path d="M4.6 6.6l5.8-3.4 3 1.8 3.2-1 3 4.4-3.2 1.6-2.6-1.4-3.2 2z" fill="${G.steel}"/>
-    <path d="M10.4 3.2l3 1.8-4.4 2.6-1.8-1.1z" fill="#eef2f6"/>`,
-  attack: `<g stroke="${G.steel}" stroke-width="2.6" stroke-linecap="round" fill="none">
-      <path d="M5.4 18.6L17.8 5.6"/><path d="M18.6 18.6L6.2 5.6"/></g>
-    <g stroke="${G.goldDeep}" stroke-width="2.2" stroke-linecap="round" fill="none">
-      <path d="M4 15.4l3.4 3.4"/><path d="M20 15.4l-3.4 3.4"/></g>`,
-  stop: `<g fill="${G.cloth}">
-      <rect x="5.4" y="7" width="2.9" height="7.4" rx="1.45"/>
-      <rect x="9" y="4.2" width="2.9" height="10" rx="1.45"/>
-      <rect x="12.6" y="4.8" width="2.9" height="9.4" rx="1.45"/>
-      <rect x="16.2" y="7.6" width="2.9" height="6.8" rx="1.45"/>
-      <path d="M5 12.6h14.2v3.2c0 3.4-3 5.8-7.1 5.8s-7.1-2.4-7.1-5.8z"/>
+  // The action-bar trio (build / gather / stop) is drawn in currentColor —
+  // flat, bold silhouettes that inherit the button's text colour, so the
+  // same glyph works light-on-dark and dark-on-gold (the primary button).
+  build: `<g fill="currentColor" transform="rotate(-35 12 11)">
+      <rect x="4.2" y="3.6" width="15.6" height="6.6" rx="1.8"/>
+      <rect x="10.4" y="9.4" width="3.2" height="11.2" rx="1.6"/>
     </g>`,
-  hold: `<path d="M12 2.4l8 3v6.3c0 4.8-3.3 8.8-8 10.6-4.7-1.8-8-5.8-8-10.6V5.4z" fill="${G.blueDeep}"/>
-    <path d="M12 5.2l5.2 2v4.6c0 3.3-2.1 6.1-5.2 7.5z" fill="${G.blue}"/>
-    <path d="M12 5.2l-5.2 2v4.6c0 3.3 2.1 6.1 5.2 7.5z" fill="#7fb6ec"/>`,
-  gather: `<path d="M3.6 10.4h16.8l-1.7 8.8a2 2 0 01-2 1.6H7.3a2 2 0 01-2-1.6z" fill="${G.wood}"/>
-    <path d="M3 8.6h18v2.6H3z" fill="#c9a877"/>
-    <path d="M8.4 8.6c0-3 1.7-5 3.6-5s3.6 2 3.6 5" stroke="${G.woodDark}" stroke-width="1.6" fill="none"/>
-    <circle cx="9.6" cy="14.6" r="1.7" fill="${G.red}"/>
-    <circle cx="14" cy="15.4" r="1.7" fill="${G.gold}"/>`,
-  demolish: `<path d="M4.4 7.4h15.2l-1.3 12.2a2 2 0 01-2 1.8H7.7a2 2 0 01-2-1.8z" fill="${G.stoneDark}"/>
-    <path d="M3 5.2h18v2.6H3z" fill="${G.stone}"/>
-    <path d="M9.2 5.2V3.6h5.6v1.6" stroke="${G.stone}" stroke-width="1.8" fill="none"/>
-    <g stroke="#5d5850" stroke-width="1.5" stroke-linecap="round"><path d="M10 11v6M14 11v6"/></g>`,
+  // Crossed blades, flattened to one colour — shared with 'army' below so
+  // "attack" and "select army" read as the same idea wherever they appear.
+  attack: `<g fill="currentColor">
+      <g transform="rotate(45 12 10.5)">
+        <path d="M12 1.2l1.8 3.7v10.4h-3.6V4.9z"/>
+        <rect x="8.3" y="15.3" width="7.4" height="2.4" rx="1.2"/>
+        <rect x="10.8" y="17.6" width="2.4" height="2.8"/>
+        <circle cx="12" cy="21.2" r="1.8"/>
+      </g>
+      <g transform="rotate(-45 12 10.5)">
+        <path d="M12 1.2l1.8 3.7v10.4h-3.6V4.9z"/>
+        <rect x="8.3" y="15.3" width="7.4" height="2.4" rx="1.2"/>
+        <rect x="10.8" y="17.6" width="2.4" height="2.8"/>
+        <circle cx="12" cy="21.2" r="1.8"/>
+      </g>
+    </g>`,
+  stop: `<path d="M8.6 3h6.8L21 8.6v6.8L15.4 21H8.6L3 15.4V8.6z" fill="currentColor"/>`,
+  // A plain shield, same silhouette family as the ARM stat glyph — "hold
+  // this ground" reads naturally as a shield.
+  hold: `<path d="M12 2.4l8 3v6.3c0 4.8-3.3 8.8-8 10.6-4.7-1.8-8-5.8-8-10.6V5.4z" fill="currentColor"/>`,
+  gather: `<path d="M8.2 9c0-3.4 1.7-5.6 3.8-5.6s3.8 2.2 3.8 5.6" stroke="currentColor"
+      stroke-width="2" fill="none" stroke-linecap="round"/>
+    <path d="M4.4 11.6h15.2l-1.6 8a2 2 0 01-2 1.6H8a2 2 0 01-2-1.6z" fill="currentColor"/>
+    <rect x="3" y="8.8" width="18" height="2.6" rx="1.3" fill="currentColor"/>`,
+  // A wall, struck through — reads as "undo this" for both cancelling a
+  // build order and demolishing a finished building. Deliberately nothing
+  // like the 'build' mallet, so the two can't be mistaken at a glance.
+  demolish: `<rect x="4.6" y="6.2" width="14.8" height="11.6" rx="1.6" fill="none" stroke="currentColor" stroke-width="2.3"/>
+    <path d="M3.4 20.6L20.6 3.4" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/>`,
   rally: `<path d="M6.4 21.4V3" stroke="${G.woodDark}" stroke-width="2.2" stroke-linecap="round"/>
     <path d="M7.6 3.8h11.6l-2.8 3.9 2.8 3.9H7.6z" fill="${G.gold}"/>`,
+  // Up-arrow riding a set of ascending steps — used for both the settlement
+  // "grow" button and the building-upgrade button, so "this gets better"
+  // always reads the same way.
+  levelUp: `<path d="M12 2.4l5.6 6.2h-3.2v4H9.6v-4H6.4z" fill="currentColor"/>
+    <g fill="currentColor" opacity="0.85">
+      <rect x="6.8" y="14.2" width="10.4" height="2.3" rx=".8"/>
+      <rect x="4.8" y="17.6" width="14.4" height="2.3" rx=".8"/>
+    </g>`,
+  // A coin drawn in outline so the slot reads without needing a second
+  // colour — trading resources for gold at the market.
+  trade: `<circle cx="12" cy="12" r="8.4" fill="none" stroke="currentColor" stroke-width="2"/>
+    <path d="M12 7.4v9.2M9.6 9.4h3.9a1.8 1.8 0 010 3.6H9.6" stroke="currentColor"
+      stroke-width="1.5" fill="none" stroke-linecap="round"/>`,
+  // A gear — the labor pool automatically assigns idle hands, so "system
+  // running" reads better than another villager silhouette. Distinct from
+  // the 'labor' tech icon below, which stays a full-colour tech-tree glyph.
+  laborToggle: `<circle cx="12" cy="12" r="4.1" fill="none" stroke="currentColor" stroke-width="2.6"/>
+    <g fill="currentColor">
+      <rect x="10.6" y="1.2" width="2.8" height="3.4" rx="1"/>
+      <rect x="10.6" y="19.4" width="2.8" height="3.4" rx="1"/>
+      <rect x="10.6" y="1.2" width="2.8" height="3.4" rx="1" transform="rotate(45 12 12)"/>
+      <rect x="10.6" y="1.2" width="2.8" height="3.4" rx="1" transform="rotate(90 12 12)"/>
+      <rect x="10.6" y="1.2" width="2.8" height="3.4" rx="1" transform="rotate(135 12 12)"/>
+      <rect x="10.6" y="1.2" width="2.8" height="3.4" rx="1" transform="rotate(180 12 12)"/>
+      <rect x="10.6" y="1.2" width="2.8" height="3.4" rx="1" transform="rotate(225 12 12)"/>
+      <rect x="10.6" y="1.2" width="2.8" height="3.4" rx="1" transform="rotate(270 12 12)"/>
+      <rect x="10.6" y="1.2" width="2.8" height="3.4" rx="1" transform="rotate(315 12 12)"/>
+    </g>`,
   menu: `<g fill="${G.cloth}"><rect x="3.4" y="5.4" width="17.2" height="2.6" rx="1.3"/>
     <rect x="3.4" y="10.7" width="17.2" height="2.6" rx="1.3"/>
     <rect x="3.4" y="16" width="17.2" height="2.6" rx="1.3"/></g>`,
@@ -219,10 +257,6 @@ const P: Record<string, string> = {
     <path d="M11.6 17.6c0-3 2.2-5 4.8-5s4.8 2 4.8 5z" fill="#a8bccb"/>
     <path d="M4 20.4h16" stroke="${G.gold}" stroke-width="2.2" stroke-linecap="round"/>
     <path d="M8 20.4v-1.6M12 20.4v-2.4M16 20.4v-1.6" stroke="${G.gold}" stroke-width="1.6" stroke-linecap="round"/>`,
-  upgrade: `<path d="M12 3l6.4 6.4h-3.6v5h-5.6v-5H5.6z" fill="${G.gold}"/>
-    <rect x="6" y="16.4" width="12" height="2.2" rx=".9" fill="${G.stone}"/>
-    <rect x="4.6" y="19.6" width="14.8" height="2.2" rx=".9" fill="${G.stoneDark}"/>`,
-
   // ---------- faction emblems ----------
   egypt: `<path d="M2.6 12.6c3.2-4.4 7-6.6 10.4-6.6 3.2 0 6 2 8.4 5.6-2.4 3.4-5.2 5.2-8.4 5.2-3.6 0-7.2-1.4-10.4-4.2z"
       fill="${G.cloth}"/>
