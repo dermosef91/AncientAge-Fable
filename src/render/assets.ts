@@ -55,8 +55,16 @@ export const assets: {
 /** Grip bones on the shared rig — tools and carried loads hang off these. */
 export const RIGHT_HAND = 'RightHand';
 export const LEFT_HAND = 'LeftHand';
-/** Upper back, where a shouldered pack is strapped on. */
+/**
+ * Mid-spine. The rig stacks Hips -> Spine02 -> Spine01 -> Spine, so this is
+ * the middle joint of the back: high enough to carry a shouldered pack or a
+ * quiver, and the right place to hang a cuirass, which has to turn with the
+ * chest rather than sit on the hips.
+ */
 export const SPINE = 'Spine01';
+/** Skull, and the off forearm a shield is strapped to. */
+export const HEAD = 'Head';
+export const LEFT_FOREARM = 'LeftForeArm';
 
 /** Names of the clips we drive from gameplay state. */
 export const VILLAGER_CLIPS = {
@@ -67,6 +75,10 @@ export const VILLAGER_CLIPS = {
   chop: 'Heavy_Hammer_Swing',
   collect: 'Collect_Object',
   attack: 'Attack',
+  /** Sword work — the legionary's, and nobody else's. */
+  slash: 'Left_Slash',
+  /** Nocking, drawing and loosing: every archer and the chariot's bowman. */
+  shoot: 'Draw_and_Shoot_from_Back_2',
   die: 'dying_backwards'
 };
 
