@@ -395,7 +395,14 @@ export class World {
         p.popUsed = Math.max(0, p.popUsed - UNITS[q.unit].pop);
       }
       if (q.kind === 'research' && q.tech) this.refund(b.owner, TECHS[q.tech].cost, 1);
-      if (q.kind === 'upgrade' && q.to) this.refund(b.owner, BUILDINGS[q.to].cost, 1);
+      // Growth is paid for up front and is the costliest thing in the queue.
+      // Losing the building carrying it used to end the match, so swallowing
+      // the payment never showed; a settlement can hold several town centers
+      // now, and demolishing one to reposition it must not burn the treasury.
+      if (q.kind === 'level' && q.level !== undefined) {
+        this.refund(b.owner, SETTLEMENTS[q.level].cost, 1);
+      }
+      if (q.kind === 'upgrade' && q.to) this.refund(b.owner, this.buildingCost(b.owner, q.to), 1);
     }
     this.buildings.delete(b.id);
   }
@@ -681,7 +688,12 @@ export class World {
       return false;
     }
     if (p.techs.has(techId)) return false;
-    if (b.queue.some(q => q.kind === 'research' && q.tech === techId)) return false;
+    // Already being studied — anywhere. Checking only this building would let a
+    // civilization with three Obelisks pay for Cartography three times over.
+    for (const other of this.buildings.values()) {
+      if (other.owner !== b.owner) continue;
+      if (other.queue.some(q => q.kind === 'research' && q.tech === techId)) return false;
+    }
     if (b.queue.length >= 5) return false;
     if (!this.canAfford(b.owner, tech.cost)) {
       if (b.owner === 0) this.emit({ t: 'toast', owner: 0, msg: 'Not enough resources', kind: 'warn' });
@@ -702,7 +714,7 @@ export class World {
     }
     if (q.kind === 'research' && q.tech) this.refund(b.owner, TECHS[q.tech].cost, 1);
     if (q.kind === 'level' && q.level !== undefined) this.refund(b.owner, SETTLEMENTS[q.level].cost, 1);
-    if (q.kind === 'upgrade' && q.to) this.refund(b.owner, BUILDINGS[q.to].cost, 1);
+    if (q.kind === 'upgrade' && q.to) this.refund(b.owner, this.buildingCost(b.owner, q.to), 1);
     b.queue.splice(idx, 1);
   }
 
@@ -721,11 +733,14 @@ export class World {
       return false;
     }
     if (b.queue.some(q => q.kind === 'upgrade')) return false;
-    if (!this.canAfford(b.owner, def.cost)) {
+    // Priced like any other construction, so faction discounts and Marble
+    // Quarry reach it too — the tech tree quotes this number.
+    const cost = this.buildingCost(b.owner, to);
+    if (!this.canAfford(b.owner, cost)) {
       if (b.owner === 0) this.emit({ t: 'toast', owner: 0, msg: 'Not enough resources', kind: 'warn' });
       return false;
     }
-    this.pay(b.owner, def.cost);
+    this.pay(b.owner, cost);
     b.queue.push({ kind: 'upgrade', to, t: 0, total: def.buildTime });
     return true;
   }

@@ -35,12 +35,12 @@ export const SETTLEMENTS: SettlementDef[] = [
   },
   {
     name: 'Village', numeral: 'III', cost: { food: 190, wood: 80 }, time: 24,
-    blurb: 'Unlocks the Archery Range, Market, Shrine and trade.'
+    blurb: 'Unlocks the Archery Range, Market, Shrine and trade. Rome paves its streets here.'
   },
   {
     name: 'Town', numeral: 'IV', cost: { food: 300, gold: 100 }, time: 32,
     blurb: 'Unlocks elite troops, towers, the Academy and new town centers. '
-      + 'The dirt paths between your buildings are paved over in stone.'
+      + 'Most peoples pave their dirt paths over in stone here; Rome already has.'
   },
   {
     name: 'City', numeral: 'V', cost: { food: 460, gold: 190, stone: 100 }, time: 40,
@@ -485,7 +485,7 @@ export const TECHS: Record<string, TechDef> = {
     desc: 'Hoplites who stand together — two or more within three paces — gain +2 melee armor.'
   },
   marble: {
-    id: 'marble', name: 'Marble Quarry', icon: 'masonry', cost: { wood: 80, stone: 60 }, time: 32,
+    id: 'marble', name: 'Marble Quarry', icon: 'marble', cost: { wood: 80, stone: 60 }, time: 32,
     at: 'acropolis', level: 4, civs: ['greece'],
     desc: 'Stone is gathered 25% faster, and every building needs 15% less of it.'
   },

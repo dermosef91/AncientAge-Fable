@@ -480,9 +480,12 @@ export class HUD {
         const faction = w.players[b.owner].faction;
         let html = '';
         b.queue.forEach((q, i) => {
+          // Four kinds ride this queue; an upgrade carries no `tech`, and
+          // reaching for one would have thrown.
           const art = q.kind === 'unit'
             ? thumbImg(unitThumb(q.unit!, faction), 'qthumb')
             : q.kind === 'level' ? `<span class="qlvl">${SETTLEMENTS[q.level!].numeral}</span>`
+            : q.kind === 'upgrade' ? icon('upgrade', 20)
             : icon(TECHS[q.tech!].icon, 20);
           const pct = i === 0 ? (q.t / q.total) * 100 : 0;
           html += `<button class="qslot" data-qi="${i}" title="Cancel">${art}<span class="prog" style="width:${pct}%"></span></button>`;

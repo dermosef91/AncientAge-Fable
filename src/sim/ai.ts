@@ -112,7 +112,8 @@ export class AIController {
     const saving = p.level < MAX_LEVEL
       && villagers.length >= AI_LEVEL_VILLAGERS[p.level + 1]
       && !w.canAfford(OWNER, SETTLEMENTS[p.level + 1].cost);
-    if (!saving && villagers.length < this.diff.aiVillagers && tc.built && tc.queue.length === 0) {
+    if (!saving && villagers.length < this.diff.aiVillagers && tc.built &&
+        !tc.queue.some(q => q.kind !== 'upgrade')) {
       w.startTrain(tc.id, 'villager');
     }
 
@@ -197,7 +198,9 @@ export class AIController {
     const w = this.world;
     const p = w.players[OWNER];
     if (p.level >= MAX_LEVEL) return;
-    if (tc.queue.length > 0) return;
+    // Villager training gives way to growth, but a walling-up Acropolis holds
+    // the queue for the best part of a minute and must not stall it.
+    if (tc.queue.some(q => q.kind !== 'upgrade')) return;
     // enough workers to keep income flowing while banking for the upgrade
     const need = AI_LEVEL_VILLAGERS[p.level + 1] ?? 12;
     if (villagers < need) return;
@@ -248,6 +251,21 @@ export class AIController {
     if (p.level >= 2 && has('range') === 0 && (t > 170 || p.res.wood >= 190)) {
       if (place('range', tc.x + 6, tc.z + 5)) return;
     }
+    // This civilization's own building. It sits this high in the order on
+    // purpose: it is the only door to the civ's own two technologies, and
+    // behind the monuments and wonders below it never got built at all.
+    const uniq = FACTIONS[p.faction].unique;
+    if (uniq === 'acropolis') {
+      // Greece raises no building for this — it walls the town center it has.
+      // Queued behind a settlement upgrade is fine; the queue runs in order.
+      if (p.level >= BUILDINGS.acropolis.level && tc.type === 'towncenter' &&
+          p.res.stone > 200 && p.res.gold > 110 && w.startUpgrade(tc.id)) return;
+    } else if (p.level >= BUILDINGS[uniq].level && has(uniq) < (uniq === 'obelisk' ? 3 : 1)) {
+      // Obelisks watch the road the player will come down; a castrum sits on it.
+      const bearing = Math.atan2(w.tcPos[0].z - tc.z, w.tcPos[0].x - tc.x);
+      const reach = uniq === 'obelisk' ? 11 + has(uniq) * 7 : 10;
+      if (place(uniq, tc.x + Math.cos(bearing) * reach, tc.z + Math.sin(bearing) * reach)) return;
+    }
     // Farms when berries run dry
     const berriesLeft = w.findNearestNode(tc.x, tc.z, 'berries', 26);
     const farms = buildings.filter(b => BUILDINGS[b.type].farm);
@@ -290,20 +308,6 @@ export class AIController {
         p.res.wood > 340 && p.res.stone > 390 && p.res.gold > 340) {
       if (place('wonder', tc.x - 8, tc.z - 8)) return;
     }
-    // This civilization's own building — Egypt raises several, the others one.
-    const uniq = FACTIONS[p.faction].unique;
-    if (uniq !== 'acropolis' && p.level >= BUILDINGS[uniq].level &&
-        has(uniq) < (uniq === 'obelisk' ? 3 : 1)) {
-      // Obelisks watch the road the player will come down; a castrum sits on it.
-      const dir = Math.atan2(w.tcPos[0].z - tc.z, w.tcPos[0].x - tc.x);
-      const reach = uniq === 'obelisk' ? 11 + has(uniq) * 7 : 10;
-      if (place(uniq, tc.x + Math.cos(dir) * reach, tc.z + Math.sin(dir) * reach)) return;
-    }
-    // Greece's acropolis is its town center, walled: upgrade in place when rich.
-    // Only the settlement's own growth outranks it for the town center queue.
-    if (uniq === 'acropolis' && p.level >= BUILDINGS.acropolis.level &&
-        tc.type === 'towncenter' && !tc.queue.some(q => q.kind === 'level') &&
-        p.res.stone > 220 && p.res.gold > 130 && w.startUpgrade(tc.id)) return;
   }
 
   /**
@@ -363,7 +367,9 @@ export class AIController {
     let n = 0;
     for (const b of this.world.buildings.values()) {
       if (b.owner !== 0) continue;
-      if (b.type === 'tower') n += 1;
+      // Anything that shoots back counts, which now includes a town center
+      // that has become an Acropolis — the very thing siege exists for.
+      if (BUILDINGS[b.type].attack) n += 1;
       else if (b.type === 'wall') n += 0.15;   // a wall matters as a line, not a brick
     }
     return n;

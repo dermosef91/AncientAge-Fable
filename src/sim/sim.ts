@@ -1038,7 +1038,9 @@ function updateFog(world: World) {
     world.markExplored(u.x, u.z, u.water ? 9.5 : 8);
   }
   for (const b of world.buildings.values()) {
-    if (b.owner !== 0) continue;
+    // A foundation sees nothing: an unbuilt Obelisk would otherwise be a
+    // 45-stone map reveal that never needs a villager to walk to it.
+    if (b.owner !== 0 || !b.built) continue;
     world.markExplored(b.x, b.z, world.buildingVision(0, b.type));
   }
 }

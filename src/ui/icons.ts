@@ -190,6 +190,16 @@ const P: Record<string, string> = {
       stroke-linecap="round" stroke-linejoin="round"/>
     <path d="M18 3.4l3.4 3-3.8 1" fill="${G.gold}"/>`,
   // ---------- civilization technologies ----------
+  marble: `<path d="M3.2 20.4l4-9.4h9.6l4 9.4z" fill="${G.cloth}"/>
+    <path d="M7.2 11h4.4l-2.2 9.4H3.2z" fill="#dfe6ec"/>
+    <path d="M9.6 13.2l1.4 5M14 12.6l-.8 3.4M12.4 17.4l3 2.2" stroke="${G.stoneDark}"
+      stroke-width=".9" fill="none" stroke-linecap="round"/>
+    <path d="M8.2 4.4h7.6l1.6 4.6H6.6z" fill="${G.stone}"/>
+    <path d="M8.2 4.4h3.8l-.6 4.6H6.6z" fill="#cfd6dc"/>
+    <path d="M11 2.2l5.6 1.6-.8 2.2" stroke="${G.woodDark}" stroke-width="1.6"
+      fill="none" stroke-linecap="round"/>
+    <rect x="15.4" y="1.2" width="4.4" height="2.2" rx=".9"
+      transform="rotate(18 17.6 2.3)" fill="${G.steel}"/>`,
   cartography: `<path d="M3 5.6l6-2.2 6 2.2 6-2.2v15l-6 2.2-6-2.2-6 2.2z" fill="${G.cloth}"/>
     <path d="M9 3.4v15.2M15 5.6v15.2" stroke="${G.stoneDark}" stroke-width="1.1" fill="none"/>
     <path d="M4.6 14.4c2.2-2.6 4-1 5.8-3s3.6-.6 5.4-2.6" stroke="${G.tealDeep}" stroke-width="1.5"
