@@ -202,17 +202,37 @@ radiating from the villa.
   and automatic repathing when buildings appear.
 - One draw call per entity: all models are merged, vertex-colored,
   flat-shaded geometry; trees, paving and ground clutter are GPU-instanced.
+  A soldier is the exception and costs one more per piece of kit, since gear
+  hangs off bones that move independently — but the whole army's gear shares
+  a single material.
 - **No emoji in the UI.** Symbols are hand-authored inline SVG
   (`src/ui/icons.ts`); every unit and building icon is the game's own 3D model
   rendered to a small isometric snapshot at runtime
   (`src/render/thumbnails.ts`), so the interface always matches the art.
 - **External models** (`assets/*.glb`, loaded by `src/render/assets.ts`): a
   sculpted palm — merged to one geometry, normalized to a fixed footprint and
-  drawn as an InstancedMesh — and a rigged Greek villager whose 12 clips are
-  driven by gameplay state (idle / walk / chop / collect / attack / death),
-  skeleton-cloned per unit with root motion stripped so the simulation still
-  owns position. Everything else stays procedural, and both models fall back
-  to procedural geometry if they fail to load.
+  drawn as an InstancedMesh — and one rigged character per civilization whose
+  12 clips are driven by gameplay state (idle / walk / chop / collect / spear
+  thrust / sword slash / draw and shoot / death), skeleton-cloned per unit
+  with root motion stripped so the simulation still owns position. Everything
+  else stays procedural, and both models fall back to procedural geometry if
+  they fail to load.
+- **Everyone on the field is the same body; the kit is what tells them
+  apart.** Soldiers wear procedural war-gear strapped to the rig's bones
+  (`src/render/soldierKit.ts`, built by `gearGeo` in `src/render/models.ts`):
+  helmet on the skull, cuirass at the chest, shield on the off forearm,
+  quiver between the shoulder blades, greaves at the knees, weapon in the
+  fist. Crisp flat-shaded gear over the softer sculpted body is the look, and
+  it is the whole reason a hoplite reads as a hoplite at sixty pixels tall.
+  The three civilizations differ in shape before colour: arched hide slab,
+  round bronze aspis and curved red scutum; cloth, bronze cone and iron dome;
+  a warm bronze spear leaf, a bronze diamond and a grey iron one. Egypt's war
+  chariot is a procedural machine with a sculpted archer standing in the cab.
+- **Blows land on the beat the simulation strikes.** Combat clips are not
+  free-run: each unit uses only the slice of its clip that reads as one blow —
+  the wind-up and thrust, the slash, the draw and loose — scrubbed across one
+  attack cooldown from the simulation's own attack timer (`driveAttack` in
+  `src/render/view.ts`).
 - **Villagers carry the kit their job calls for** — an axe at the trees, a
   pickaxe at stone and gold, a sickle on the farm, a mallet on a building
   site, a hand net at the fishing shallows and a basket while foraging. The

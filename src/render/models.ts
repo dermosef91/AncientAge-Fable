@@ -1535,8 +1535,14 @@ function humanoid(p: Parts, opts: {
   }
 }
 
-export function unitGeo(type: UnitTypeId, faction: Faction): THREE.BufferGeometry {
-  return cached(`u_${type}_${faction}`, p => {
+/**
+ * A unit's procedural body. `crewed` is the chariot's only concern: the game
+ * normally stands a sculpted archer in the cab, so the cab is built empty —
+ * but if the character models failed to load there is nobody to stand there,
+ * and the fallback needs its blocky rider back.
+ */
+export function unitGeo(type: UnitTypeId, faction: Faction, crewed = false): THREE.BufferGeometry {
+  return cached(`u_${type}_${faction}${crewed ? '_c' : ''}`, p => {
     const skin = SKIN[faction];
     const st = STYLE[faction];
     switch (type) {
@@ -1602,8 +1608,14 @@ export function unitGeo(type: UnitTypeId, faction: Faction): THREE.BufferGeometr
         }
         p.box(0x4a3018, 0.06, 0.3, 0.08, 0, 0.5, hz + 0.34, { rx: 0.5 });
         p.box(st.accent, 0.28, 0.05, 0.4, 0, 0.64, hz, { shade: 1.1 }); // caparison
-        // rider
-        humanoid(p, { skin, tunic: 0xf2ead8, tunicTrim: st.accent, scale: 0.92 });
+        // The archer who rides here is a sculpted model the view stands in
+        // the cab; the cab carries his arrows, slung on the outside of the
+        // right wall where they clear his draw.
+        p.cyl(HIDE, 0.048, 0.055, 0.42, 0.3, 0.5, 0.14, { seg: 7, rx: -0.3 });
+        p.cyl(PAL.gold, 0.06, 0.06, 0.04, 0.3, 0.69, 0.08, { seg: 7, rx: -0.3 });
+        p.cyl(st.accent, 0.056, 0.056, 0.035, 0.3, 0.54, 0.13, { seg: 7, rx: -0.3 });
+        p.box(FLETCH, 0.055, 0.1, 0.05, 0.3, 0.76, 0.06, { rx: -0.3 });
+        if (crewed) humanoid(p, { skin, tunic: 0xf2ead8, tunicTrim: st.accent, scale: 0.92 });
         break;
       }
       case 'ram': {
@@ -1751,19 +1763,109 @@ export const UNIT_VIS_HEIGHT: Record<UnitTypeId, number> = {
 };
 
 // weapons: origin at grip, blade along +y
-export function weaponGeo(kind: 'spear' | 'sword' | 'bow'): THREE.BufferGeometry {
+/**
+ * Every armed unit's weapon. Beyond the three generic ones the soldiers each
+ * carry their civilization's own: the three spears differ in head shape *and*
+ * metal (warm bronze leaf / bronze diamond / grey iron leaf), and the three
+ * bows in profile (angular recurve / smooth warm arc / deep arc with siyahs),
+ * so a unit is identifiable from its weapon alone.
+ */
+export type WeaponKind =
+  | 'spear' | 'sword' | 'bow'
+  | 'dory' | 'longdory' | 'cretan'
+  | 'espear' | 'recurve'
+  | 'hasta' | 'sagbow' | 'gladius';
+
+export function weaponGeo(kind: WeaponKind): THREE.BufferGeometry {
   return cached(`w_${kind}`, p => {
-    if (kind === 'spear') {
-      p.cyl(PAL.woodDark, 0.016, 0.016, 0.85, 0, 0.18, 0, { seg: 4 });
-      p.cone(0xc9ccd1, 0.035, 0.14, 0, 0.66, 0, { seg: 4 });
-    } else if (kind === 'sword') {
-      p.box(0xc9ccd1, 0.035, 0.3, 0.012, 0, 0.22, 0);
-      p.cone(0xc9ccd1, 0.024, 0.06, 0, 0.4, 0, { seg: 4 });
-      p.box(PAL.gold, 0.09, 0.025, 0.03, 0, 0.06, 0);
-      p.cyl(PAL.woodDark, 0.014, 0.014, 0.09, 0, 0.0, 0, { seg: 4 });
-    } else {
-      p.torus(PAL.woodDark, 0.19, 0.013, Math.PI * 0.85, 0, 0.15, 0, { rz: -Math.PI * 0.42 });
-      p.box(0xd8cfb8, 0.005, 0.36, 0.005, 0.045, 0.15, 0);
+    switch (kind) {
+      case 'spear':
+        p.cyl(PAL.woodDark, 0.016, 0.016, 0.85, 0, 0.18, 0, { seg: 4 });
+        p.cone(0xc9ccd1, 0.035, 0.14, 0, 0.66, 0, { seg: 4 });
+        break;
+      case 'sword':
+        p.box(0xc9ccd1, 0.035, 0.3, 0.012, 0, 0.22, 0);
+        p.cone(0xc9ccd1, 0.024, 0.06, 0, 0.4, 0, { seg: 4 });
+        p.box(PAL.gold, 0.09, 0.025, 0.03, 0, 0.06, 0);
+        p.cyl(PAL.woodDark, 0.014, 0.014, 0.09, 0, 0.0, 0, { seg: 4 });
+        break;
+      case 'bow':
+        p.torus(PAL.woodDark, 0.19, 0.013, Math.PI * 0.85, 0, 0.15, 0, { rz: -Math.PI * 0.42 });
+        p.box(0xd8cfb8, 0.005, 0.36, 0.005, 0.045, 0.15, 0);
+        break;
+      // Greek dory: ash haft, diamond leaf blade, bronze sauroter butt-spike.
+      case 'dory':
+      case 'longdory': {
+        const long = kind === 'longdory';
+        const haft = long ? 1.06 : 0.92;
+        const y0 = long ? 0.24 : 0.2;
+        p.cyl(PAL.woodDark, 0.016, 0.016, haft, 0, y0, 0, { seg: 5 });
+        p.cyl(LASH, 0.021, 0.021, 0.05, 0, y0 + haft / 2 - 0.028, 0, { seg: 5 });
+        const tip = y0 + haft / 2;
+        p.cone(BRONZE_LIGHT, 0.035, 0.13, 0, tip + 0.075, 0, { seg: 4, sz: 0.5 });
+        p.cone(BRONZE_LIGHT, 0.035, 0.05, 0, tip - 0.014, 0, { seg: 4, sz: 0.5, rx: Math.PI });
+        p.cone(BRONZE, 0.021, long ? 0.1 : 0.08, 0, y0 - haft / 2 - 0.03, 0, { seg: 4, rx: Math.PI });
+        break;
+      }
+      // Egyptian war spear: taller than the generic one, gold socket collar
+      // under a flat bronze leaf blade.
+      case 'espear':
+        p.cyl(PAL.woodDark, 0.015, 0.017, 0.95, 0, 0.22, 0, { seg: 5 });
+        p.cyl(LASH, 0.019, 0.019, 0.04, 0, 0.61, 0, { seg: 5 });
+        p.cyl(PAL.gold, 0.022, 0.022, 0.05, 0, 0.655, 0, { seg: 5 });
+        p.sphere(BRONZE_LIGHT, 0.052, 0, 0.77, 0, { seg: 6, sx: 0.3, sy: 2.4, sz: 0.9, shade: 1.1 });
+        p.cone(BRONZE_LIGHT, 0.024, 0.1, 0, 0.87, 0, { seg: 4, shade: 1.1 });
+        break;
+      // Egyptian composite recurve: straight limbs slanting out from the
+      // riser, then a hard knee kicking each tip back to the string — a
+      // zigzag profile that reads nothing like a smooth arc.
+      case 'recurve':
+        p.cyl(LASH, 0.019, 0.019, 0.12, 0.015, 0, 0, { seg: 5 });
+        for (const sy of [-1, 1]) {
+          p.cyl(PAL.woodLight, 0.013, 0.016, 0.23, -0.075, sy * 0.15, 0, { seg: 5, rz: sy * 0.62 });
+          p.cyl(PAL.gold, 0.014, 0.014, 0.08, -0.116, sy * 0.272, 0, { seg: 4, rz: sy * -0.75 });
+          p.sphere(PAL.goldBright, 0.018, -0.09, sy * 0.3, 0, { seg: 4 });
+        }
+        p.box(FLETCH, 0.005, 0.6, 0.005, -0.09, 0, 0);
+        break;
+      // Cretan bow: a warm, smooth, compact arc with hooked bronze tips.
+      // Like the other soldiers' bows it is built around its grip, so the
+      // riser — not the belly of the stave — is what the fist closes on.
+      case 'cretan':
+        p.torus(PAL.wood, 0.17, 0.014, Math.PI * 0.85, -0.17, 0, 0, { rz: -Math.PI * 0.42 });
+        p.cyl(LASH, 0.019, 0.019, 0.07, 0, 0, 0, { seg: 5 });
+        p.cyl(BRONZE_LIGHT, 0.013, 0.013, 0.055, -0.142, 0.176, 0, { seg: 4, rz: 1.35 });
+        p.cyl(BRONZE_LIGHT, 0.013, 0.013, 0.055, -0.138, -0.176, 0, { seg: 4, rz: -1.35 });
+        p.box(PAL.white, 0.005, 0.35, 0.005, -0.126, 0, 0);
+        break;
+      // Roman hasta: iron socket under a flat grey leaf, spiked at the butt.
+      case 'hasta':
+        p.cyl(PAL.woodDark, 0.016, 0.016, 0.95, 0, 0.2, 0, { seg: 5 });
+        p.cyl(LASH, 0.021, 0.021, 0.04, 0, 0.63, 0, { seg: 5 });
+        p.cyl(IRON, 0.017, 0.023, 0.07, 0, 0.695, 0, { seg: 5 });
+        p.sphere(STEEL, 0.03, 0, 0.775, 0, { seg: 5, sy: 1.7, sz: 0.28 });
+        p.cone(STEEL, 0.026, 0.1, 0, 0.85, 0, { seg: 4, sz: 0.3 });
+        p.cone(IRON, 0.018, 0.06, 0, -0.305, 0, { seg: 4, rx: Math.PI });
+        break;
+      // Sagittarii bow: a deep dark arc whose counter-angled siyahs break the
+      // smooth C that the Greek and generic bows both make.
+      case 'sagbow':
+        p.torus(PAL.woodDark, 0.2, 0.015, Math.PI * 0.8, -0.2, 0, 0, { rz: -Math.PI * 0.4 });
+        p.box(PAL.woodDark, 0.018, 0.095, 0.022, -0.158, 0.222, 0, { rz: 0.55 });
+        p.box(PAL.woodDark, 0.018, 0.095, 0.022, -0.158, -0.222, 0, { rz: -0.55 });
+        p.cyl(0xa93226, 0.021, 0.021, 0.09, 0, 0, 0, { seg: 5 });
+        p.box(FLETCH, 0.005, 0.48, 0.005, -0.158, 0, 0);
+        break;
+      // Gladius: a stubby wide blade on a round guard and ball pommel — the
+      // roster's only short reach, and the visual partner to the big scutum.
+      case 'gladius':
+        p.sphere(PAL.sand, 0.026, 0, -0.05, 0, { seg: 5 });
+        p.cyl(LASH, 0.015, 0.015, 0.09, 0, 0.005, 0, { seg: 5 });
+        p.cyl(PAL.woodDark, 0.032, 0.032, 0.028, 0, 0.058, 0, { seg: 6 });
+        p.box(STEEL, 0.05, 0.24, 0.014, 0, 0.19, 0);
+        p.box(STEEL, 0.014, 0.24, 0.017, 0, 0.19, 0, { shade: 1.1 });
+        p.cone(STEEL, 0.025, 0.09, 0, 0.355, 0, { seg: 4, sz: 0.3 });
+        break;
     }
   });
 }
@@ -1898,6 +2000,375 @@ export function carryGeo(kind: NodeKind): THREE.BufferGeometry {
   });
 }
 
+// ---------------------------------------------------------------- soldier gear
+// War-kit worn by the rigged soldier characters. Each piece is built in its
+// own mount frame and strapped to a bone by the soldier-kit fitter:
+//   helm_*   origin at the skull's centre, +y up, +z the way the face points
+//   armor_*  origin at the chest's centre, +z forward
+//   shield_* origin at the grip on the back face, the painted face toward +z
+//   quiver   origin between the shoulder blades, the tube hanging behind (-z)
+//   greave   origin at the knee, the shin running down -y
+//   bracer   origin at mid-forearm, the arm running out along +x
+//
+// The three civilizations are meant to be told apart by shape before colour,
+// and by colour before detail, because at playing zoom a soldier is sixty
+// pixels tall:
+//   metal   Egypt bronze-and-gold, Greece bronze, Rome the grey iron ramp
+//           (Roman gold appears only as rank punctuation on the legionary)
+//   heads   cloth (Egypt), bronze cone or straw brim (Greece), iron (Rome)
+//   crests  blue arc for the hoplite, red brush for the legionary, and never
+//           on Egypt — whose elite wears the lapis khepresh instead
+//   shields arched slab (Egypt), circle (Greece), oval and rectangle (Rome)
+const LINEN = 0xf2ead8;
+const HIDE = 0xc7a26b;
+const HIDE_DARK = 0x8a6a48;
+const STEEL = 0xc9ccd1;
+/** Rome's metal: the plain ramp, its dark edging and its polished plate. */
+const IRON_DARK = 0x6a6e74;
+const IRON_BRIGHT = 0x9aa0a8;
+/** Fletchings, and the linen the bowstrings are spun from. */
+const FLETCH = 0xd8cfb8;
+
+/**
+ * One piece of war-kit, in its own mount frame. A piece a civilization does
+ * not wear has no case here and builds nothing — which is how the archers get
+ * no shield, and only the hoplite gets greaves.
+ */
+/** Every piece this switch actually builds, so a typo is not silent. */
+const GEAR_PIECES = new Set([
+  'helm_spearman_egypt', 'helm_spearman_greece', 'helm_spearman_rome',
+  'helm_archer_egypt', 'helm_archer_greece', 'helm_archer_rome',
+  'helm_elite_egypt', 'helm_elite_greece', 'helm_elite_rome',
+  'armor_spearman_egypt', 'armor_spearman_greece', 'armor_spearman_rome',
+  'armor_archer_egypt', 'armor_archer_greece', 'armor_archer_rome',
+  'armor_elite_egypt', 'armor_elite_greece', 'armor_elite_rome',
+  'shield_spearman_egypt', 'shield_spearman_greece', 'shield_spearman_rome',
+  'shield_elite_greece', 'shield_elite_rome', 'quiver_egypt',
+  'quiver_greece', 'quiver_rome', 'greave_greece',
+  'bracer_egypt', 'bracer_rome'
+]);
+
+export function gearGeo(piece: string, faction: Faction): THREE.BufferGeometry {
+  return cached(`g_${piece}_${faction}`, p => {
+    const st = STYLE[faction];
+    const key = `${piece}_${faction}`;
+    if (!GEAR_PIECES.has(key)) {
+      // An unknown key builds nothing at all, which on screen looks exactly
+      // like a soldier who simply is not issued that piece — so say so.
+      console.warn(`[gear] no such piece: ${key}`);
+    }
+    switch (key) {
+      // ---------------- helmets: spearman
+      case 'helm_spearman_egypt':
+        // khat headcloth: linen dome, a gathered bag down the nape, and the
+        // paired gold-over-lapis banding that every Egyptian piece repeats
+        p.sphere(LINEN, 0.13, 0, 0.01, -0.02, { seg: 7, sy: 0.88 });
+        p.box(LINEN, 0.1, 0.16, 0.07, 0, -0.06, -0.12, { rx: 0.35, shade: 0.95 });
+        p.box(st.accent, 0.105, 0.032, 0.075, 0, -0.12, -0.145, { rx: 0.35 });
+        p.torus(PAL.gold, 0.124, 0.016, Math.PI * 2, 0, 0.02, -0.02, { rx: Math.PI / 2 });
+        p.torus(st.accent, 0.113, 0.012, Math.PI * 2, 0, 0.055, -0.02, { rx: Math.PI / 2 });
+        break;
+      case 'helm_spearman_greece':
+        // pilos: one unbroken bronze triangle over a rolled rim — the pointiest
+        // head on the field, and the lightest thing Greece fields
+        p.cyl(BRONZE, 0.118, 0.126, 0.075, 0, -0.01, 0, { seg: 8 });
+        p.cone(BRONZE, 0.122, 0.185, 0, 0.118, 0, { seg: 8 });
+        p.torus(BRONZE_LIGHT, 0.122, 0.013, Math.PI * 2, 0, -0.045, 0, { rx: Math.PI / 2 });
+        p.cyl(st.accent, 0.124, 0.124, 0.026, 0, 0.03, 0, { seg: 8 });
+        break;
+      case 'helm_spearman_rome':
+        // montefortino: grey bowl, flared brim, and the polished knob that
+        // tells him from the crested legionary in a single bump
+        p.sphere(IRON, 0.125, 0, 0.015, 0, { seg: 8, sy: 1.05 });
+        p.cyl(IRON_DARK, 0.135, 0.15, 0.028, 0, -0.06, 0, { seg: 8 });
+        p.cyl(IRON, 0.02, 0.026, 0.035, 0, 0.15, 0, { seg: 5 });
+        p.sphere(IRON_BRIGHT, 0.024, 0, 0.175, 0, { seg: 5 });
+        p.box(IRON, 0.13, 0.018, 0.055, 0, -0.07, -0.125, { rx: -0.35, shade: 0.95 });
+        p.box(IRON, 0.022, 0.09, 0.065, -0.107, -0.07, 0.025, { shade: 0.92 });
+        p.box(IRON, 0.022, 0.09, 0.065, 0.107, -0.07, 0.025, { shade: 0.92 });
+        break;
+      // ---------------- helmets: archer
+      case 'helm_archer_egypt':
+        // striped linen cap, knotted at the nape, its two tails swinging as
+        // he turns — the smallest head on the field, so the bow dominates
+        p.sphere(LINEN, 0.122, 0, 0.02, -0.005, { seg: 7, sy: 0.92 });
+        p.torus(st.accent, 0.12, 0.013, Math.PI * 2, 0, 0.035, -0.005, { rx: Math.PI / 2 });
+        p.torus(st.accent, 0.104, 0.012, Math.PI * 2, 0, 0.075, -0.005, { rx: Math.PI / 2 });
+        p.sphere(LINEN, 0.035, 0, 0, -0.125, { seg: 5 });
+        p.box(LINEN, 0.05, 0.11, 0.02, 0.02, -0.07, -0.13, { rx: 0.3, rz: 0.15, shade: 0.94 });
+        p.box(st.accent, 0.04, 0.09, 0.018, -0.025, -0.06, -0.128, { rx: 0.35, rz: -0.2 });
+        break;
+      case 'helm_archer_greece':
+        // petasos: the only horizontal brim in the game, worn at a slight tilt
+        p.sphere(PAL.sand, 0.12, 0, 0.065, 0, { seg: 7, sy: 0.72 });
+        p.cyl(st.accent, 0.118, 0.118, 0.03, 0, 0.035, 0, { seg: 8 });
+        p.cyl(PAL.sand, 0.19, 0.19, 0.014, 0, 0.028, 0, { seg: 10, rx: 0.05 });
+        break;
+      case 'helm_archer_rome':
+        // auxiliary cap: the only metal head among the archers, with a red
+        // focale at the throat so the colour still reads from behind
+        p.sphere(IRON, 0.12, 0, 0.02, 0, { seg: 7, sy: 0.9 });
+        p.cyl(IRON_DARK, 0.123, 0.123, 0.035, 0, -0.03, 0, { seg: 8 });
+        p.box(IRON, 0.13, 0.016, 0.055, 0, -0.06, -0.105, { rx: -0.4, shade: 0.94 });
+        p.torus(st.accent, 0.078, 0.024, Math.PI * 2, 0, -0.105, 0.005, { rx: Math.PI / 2 });
+        break;
+      // ---------------- helmets: elites
+      case 'helm_elite_egypt':
+        // khepresh war crown: a tall lapis dome swept back over a gold
+        // browband, the uraeus rearing at the brow. Egypt's elite wears rank
+        // where the other civilizations wear a crest.
+        p.sphere(st.accent, 0.125, 0, 0.04, -0.025, { seg: 7, sy: 1.22, sz: 1.08 });
+        p.sphere(st.accent, 0.082, 0, 0.095, -0.095, { seg: 6, sy: 0.85, sz: 1.15, shade: 0.94 });
+        p.torus(PAL.gold, 0.122, 0.017, Math.PI * 2, 0, -0.012, -0.025, { rx: Math.PI / 2 });
+        p.box(PAL.gold, 0.02, 0.075, 0.02, 0, 0.075, 0.108, { rx: -0.2 });
+        p.sphere(PAL.goldBright, 0.019, 0, 0.118, 0.114, { seg: 4 });
+        break;
+      case 'helm_elite_greece':
+        // corinthian: bronze dome flaring to the jaw, the face showing through
+        // a T-slit between cheek guards, under an arc of aegean horsehair
+        p.sphere(BRONZE, 0.13, 0, 0.025, 0, { seg: 8 });
+        p.cyl(BRONZE, 0.118, 0.128, 0.1, 0, -0.045, 0, { seg: 8 });
+        p.box(BRONZE, 0.045, 0.1, 0.028, -0.052, -0.115, 0.075, { rx: -0.06, shade: 1.04 });
+        p.box(BRONZE, 0.045, 0.1, 0.028, 0.052, -0.115, 0.075, { rx: -0.06, shade: 1.04 });
+        p.box(BRONZE, 0.026, 0.08, 0.02, 0, -0.075, 0.116);
+        p.box(BRONZE_LIGHT, 0.14, 0.02, 0.02, 0, -0.015, 0.115);
+        p.box(BRONZE, 0.15, 0.07, 0.025, 0, -0.1, -0.095, { rx: 0.45, shade: 0.94 });
+        // the crest: a bronze holder carrying an arc of horsehair that follows
+        // the dome from brow to nape, then falls in a tail down the neck
+        p.box(BRONZE_LIGHT, 0.032, 0.05, 0.27, 0, 0.115, -0.01);
+        for (let i = 0; i < 7; i++) {
+          const a = (i - 3) * 0.4;
+          p.box(st.accent, 0.058, 0.1, 0.08,
+            0, 0.035 + Math.cos(a) * 0.175, Math.sin(a) * 0.165,
+            { rx: a, shade: 1.04 - Math.abs(a) * 0.06 });
+        }
+        p.box(st.accent, 0.05, 0.15, 0.06, 0, 0.03, -0.17, { rx: 0.3, shade: 0.88 });
+        break;
+      case 'helm_elite_rome':
+        // imperial gallic: steel brow bar, broad flared neck guard, and a red
+        // brush running fore and aft — the poster silhouette
+        p.sphere(IRON, 0.128, 0, 0.025, 0, { seg: 8, sy: 0.96 });
+        p.cyl(IRON, 0.126, 0.13, 0.055, 0, -0.05, 0, { seg: 8 });
+        p.box(STEEL, 0.16, 0.025, 0.04, 0, 0.03, 0.115, { shade: 1.05 });
+        p.box(IRON, 0.16, 0.025, 0.1, 0, -0.085, -0.135, { rx: -0.45, shade: 0.94 });
+        p.box(IRON, 0.045, 0.11, 0.026, -0.095, -0.11, 0.05, { shade: 1.03 });
+        p.box(IRON, 0.045, 0.11, 0.026, 0.095, -0.11, 0.05, { shade: 1.03 });
+        // a stiff brush standing fore and aft along the crown — flatter and
+        // squarer than the hoplite's sweeping horsehair
+        for (let i = 0; i < 5; i++) {
+          const a = (i - 2) * 0.42;
+          p.box(0xb03a2e, 0.05, 0.13, 0.085,
+            0, 0.055 + Math.cos(a) * 0.165, Math.sin(a) * 0.15,
+            { rx: a * 0.7, shade: 1.05 - Math.abs(a) * 0.05 });
+        }
+        break;
+      // ---------------- body armor
+      case 'armor_spearman_egypt':
+        // wesekh collar: gold and lapis tiers draped from the throat, with a
+        // lapis sash at the waist. The sculpted linen tunic stays the body —
+        // a corselet box would only bury it.
+        p.cyl(PAL.gold, 0.075, 0.075, 0.02, 0, 0.035, 0.012, { seg: 10, sz: 0.7, rx: 0.18 });
+        p.cyl(st.accent, 0.095, 0.095, 0.018, 0, 0.017, 0.016, { seg: 10, sz: 0.62, rx: 0.18 });
+        p.cyl(PAL.gold, 0.112, 0.112, 0.016, 0, 0, 0.02, { seg: 10, sz: 0.56, rx: 0.18 });
+        p.cyl(st.accent, 0.138, 0.138, 0.05, 0, -0.125, 0, { seg: 10, sz: 0.72 });
+        p.box(PAL.gold, 0.05, 0.056, 0.02, 0, -0.125, 0.098);
+        break;
+      case 'armor_spearman_greece':
+        // linothorax: stiffened white linen wrapping the ribs, its shoulder
+        // yoke folded down over the chest and a blue band at the waist
+        p.cyl(LINEN, 0.142, 0.148, 0.28, 0, -0.01, 0, { seg: 10, sz: 0.68 });
+        p.cyl(st.accent, 0.146, 0.15, 0.045, 0, -0.115, 0, { seg: 10, sz: 0.7 });
+        p.cyl(st.accent, 0.144, 0.144, 0.022, 0, 0.115, 0, { seg: 10, sz: 0.7 });
+        for (const sx of [-1, 1]) {
+          // the yoke: a flap over each shoulder, buckled down at the breast
+          p.box(0xded6c0, 0.085, 0.13, 0.03, sx * 0.075, 0.075, 0.098, { rz: sx * 0.16 });
+          p.box(0xded6c0, 0.085, 0.035, 0.19, sx * 0.078, 0.135, 0, { shade: 1.05 });
+          p.box(st.accent, 0.088, 0.022, 0.032, sx * 0.072, 0.02, 0.1);
+        }
+        break;
+      case 'armor_spearman_rome':
+        // kardiophylax: one riveted iron square, previewing the legionary's
+        // full plate without borrowing his stepped shoulders
+        p.box(IRON, 0.15, 0.15, 0.02, 0, 0.02, 0.1, { shade: 1.05 });
+        for (const sx of [-1, 1]) {
+          for (const sy of [-1, 1]) {
+            p.sphere(IRON_BRIGHT, 0.012, sx * 0.055, 0.02 + sy * 0.05, 0.112, { seg: 4 });
+          }
+          p.box(LASH, 0.04, 0.17, 0.016, sx * 0.07, 0.115, 0.096, { rz: sx * -0.35 });
+        }
+        p.cyl(LASH, 0.138, 0.138, 0.045, 0, -0.14, 0, { seg: 10, sz: 0.72 });
+        p.box(IRON, 0.035, 0.03, 0.014, 0, -0.14, 0.103);
+        break;
+      case 'armor_archer_egypt':
+        // leather baldric with a gold sun-disc at the sternum, lapis at the waist
+        p.box(0x6b4f33, 0.05, 0.29, 0.016, 0, 0, 0.093, { rz: -0.65 });
+        p.box(0x6b4f33, 0.05, 0.29, 0.016, 0, 0, -0.093, { rz: -0.65, shade: 0.9 });
+        p.cyl(PAL.goldBright, 0.032, 0.032, 0.016, 0, 0.02, 0.1, { seg: 7, rx: Math.PI / 2 });
+        p.cyl(st.accent, 0.138, 0.138, 0.045, 0, -0.115, 0, { seg: 10, sz: 0.72 });
+        break;
+      case 'armor_archer_greece':
+        // white linen baldric crossing to the quiver, bronze clasp at the cross
+        p.box(PAL.white, 0.055, 0.3, 0.022, 0, 0, 0.095, { rz: 0.62 });
+        p.box(0xded6c0, 0.055, 0.3, 0.022, 0, 0, -0.095, { rz: -0.62, shade: 0.94 });
+        p.cyl(BRONZE_LIGHT, 0.028, 0.028, 0.02, 0, 0.02, 0.1, { seg: 6, rx: Math.PI / 2 });
+        break;
+      case 'armor_archer_rome':
+        // hard leather diagonal on an iron buckle, red sash low at the waist
+        p.box(0x6b4f33, 0.05, 0.29, 0.016, 0, 0, 0.093, { rz: -0.6, shade: 0.92 });
+        p.box(0x6b4f33, 0.05, 0.29, 0.016, 0, 0, -0.093, { rz: 0.6, shade: 0.9 });
+        p.box(IRON, 0.04, 0.04, 0.014, 0.03, 0.052, 0.1);
+        p.cyl(st.accent, 0.138, 0.138, 0.048, 0, -0.115, 0, { seg: 10, sz: 0.72 });
+        break;
+      case 'armor_elite_egypt':
+        // royal wesekh: a tier more than the spearman's, crossed with gold
+        // harness bands that survive being half-hidden by the chariot rail
+        p.cyl(PAL.goldBright, 0.07, 0.07, 0.02, 0, 0.05, 0.012, { seg: 8, sz: 0.7, rx: 0.18 });
+        p.cyl(st.accent, 0.09, 0.09, 0.018, 0, 0.033, 0.016, { seg: 8, sz: 0.62, rx: 0.18 });
+        p.cyl(PAL.gold, 0.107, 0.107, 0.016, 0, 0.016, 0.02, { seg: 8, sz: 0.56, rx: 0.18 });
+        p.cyl(st.accent, 0.122, 0.122, 0.015, 0, 0, 0.024, { seg: 8, sz: 0.5, rx: 0.18 });
+        p.box(PAL.gold, 0.045, 0.26, 0.02, 0, -0.04, 0.1, { rz: 0.6 });
+        p.box(PAL.gold, 0.045, 0.26, 0.02, 0, -0.04, 0.1, { rz: -0.6 });
+        break;
+      case 'armor_elite_greece':
+        // bell cuirass: bronze plates over a flared waist, with a linen
+        // pteruges skirt swinging under it
+        p.box(BRONZE, 0.27, 0.26, 0.05, 0, 0, 0.075);
+        p.box(BRONZE, 0.27, 0.26, 0.05, 0, 0.01, -0.075, { shade: 0.92 });
+        p.sphere(BRONZE_LIGHT, 0.06, -0.06, 0.045, 0.095, { seg: 6, sz: 0.22, shade: 1.06 });
+        p.sphere(BRONZE_LIGHT, 0.06, 0.06, 0.045, 0.095, { seg: 6, sz: 0.22, shade: 1.06 });
+        p.box(BRONZE_LIGHT, 0.07, 0.03, 0.2, -0.085, 0.14, 0, { shade: 1.05 });
+        p.box(BRONZE_LIGHT, 0.07, 0.03, 0.2, 0.085, 0.14, 0, { shade: 1.05 });
+        p.cyl(BRONZE, 0.15, 0.175, 0.05, 0, -0.145, 0, { seg: 8, sz: 0.72 });
+        for (let i = 0; i < 7; i++) {
+          const a = (i - 3) * 0.42;
+          p.box(i % 2 ? LINEN : 0xded6c0, 0.05, 0.11, 0.02,
+            Math.sin(a) * 0.14, -0.23, Math.cos(a) * 0.12, { ry: a });
+        }
+        break;
+      case 'armor_elite_rome':
+        // lorica segmentata: polished hoops whose alternating shade fakes the
+        // seams, and two-tier shoulder guards — the only shoulder line on the
+        // roster that steps outward instead of sloping
+        p.cyl(IRON_BRIGHT, 0.155, 0.16, 0.05, 0, -0.05, 0, { seg: 8, sz: 0.72, shade: 0.86 });
+        p.cyl(IRON_BRIGHT, 0.15, 0.155, 0.05, 0, 0.005, 0, { seg: 8, sz: 0.72 });
+        p.cyl(IRON_BRIGHT, 0.145, 0.15, 0.05, 0, 0.06, 0, { seg: 8, sz: 0.72, shade: 0.86 });
+        p.box(IRON_BRIGHT, 0.17, 0.045, 0.02, 0, 0.125, 0.098, { shade: 1.1 });
+        for (const sx of [-1, 1]) {
+          p.box(IRON_BRIGHT, 0.1, 0.035, 0.2, sx * 0.1, 0.15, 0, { rz: sx * -0.25, shade: 1.08 });
+          p.box(IRON_BRIGHT, 0.09, 0.03, 0.18, sx * 0.15, 0.115, 0, { rz: sx * -0.5, shade: 0.88 });
+          p.box(PAL.gold, 0.022, 0.028, 0.012, sx * 0.04, 0.03, 0.104);
+        }
+        p.box(LASH, 0.27, 0.045, 0.19, 0, -0.105, 0);
+        for (const x of [-0.05, 0, 0.05]) {
+          p.box(LASH, 0.035, 0.1, 0.02, x, -0.16, 0.09, { shade: 0.9 });
+          p.sphere(PAL.gold, 0.014, x, -0.2, 0.095, { seg: 4 });
+        }
+        break;
+      // ---------------- shields
+      case 'shield_spearman_egypt':
+        // the Egyptian outline: straight sides under a semicircular crown,
+        // cowhide patched, banded gold over lapis along the foot
+        p.box(HIDE, 0.22, 0.34, 0.035, 0, 0, 0.0175);
+        p.cyl(HIDE, 0.11, 0.11, 0.035, 0, 0.17, 0.0175, { seg: 9, rx: Math.PI / 2 });
+        p.sphere(HIDE_DARK, 0.05, -0.05, 0.06, 0.033, { seg: 5, sz: 0.25 });
+        p.sphere(HIDE_DARK, 0.06, 0.055, -0.08, 0.033, { seg: 5, sz: 0.25, sy: 0.8 });
+        // an eye of Horus painted in the arch, over gold and lapis at the foot
+        p.sphere(PAL.cloth, 0.075, 0, 0.185, 0.034, { seg: 6, sz: 0.2, sy: 0.55 });
+        p.sphere(st.accent, 0.036, 0, 0.185, 0.04, { seg: 5, sz: 0.22 });
+        p.box(PAL.gold, 0.222, 0.026, 0.014, 0, -0.128, 0.038);
+        p.box(st.accent, 0.222, 0.026, 0.014, 0, -0.158, 0.038);
+        p.box(PAL.gold, 0.026, 0.3, 0.012, 0, 0.02, 0.038, { shade: 0.98 });
+        p.box(PAL.woodDark, 0.03, 0.14, 0.02, 0, 0, -0.012);
+        break;
+      case 'shield_spearman_greece':
+        // small flat aspis: a blue field carrying one white ring
+        p.cyl(st.accent, 0.17, 0.17, 0.025, 0, 0, 0.015, { seg: 10, rx: Math.PI / 2 });
+        p.torus(BRONZE, 0.16, 0.016, Math.PI * 2, 0, 0, 0.03);
+        p.torus(PAL.white, 0.095, 0.012, Math.PI * 2, 0, 0, 0.03);
+        p.sphere(BRONZE_LIGHT, 0.05, 0, 0, 0.035, { sz: 0.55 });
+        p.box(LASH, 0.03, 0.12, 0.025, 0, 0, -0.012);
+        break;
+      case 'shield_spearman_rome':
+        // oval scutum: an egg, not a circle — iron rim, spina and boss, since
+        // the gold boss is the legionary's rank mark and not his
+        p.cyl(st.accent, 0.17, 0.17, 0.03, 0, 0, 0.015, { seg: 10, rx: Math.PI / 2, sx: 0.72, sz: 1.35 });
+        p.torus(IRON_DARK, 0.165, 0.014, Math.PI * 2, 0, 0, 0.028, { sx: 0.72, sy: 1.35 });
+        p.box(IRON, 0.045, 0.4, 0.02, 0, 0, 0.032);
+        p.sphere(IRON, 0.05, 0, 0, 0.035, { sz: 0.6 });
+        p.box(PAL.woodDark, 0.02, 0.09, 0.018, 0, 0, -0.01);
+        break;
+      case 'shield_elite_greece':
+        // the hoplon: a broad dished aspis, heavy rim, white ring on the slope
+        p.cyl(BRONZE, 0.24, 0.24, 0.02, 0, 0, 0.01, { seg: 12, rx: Math.PI / 2 });
+        p.cone(st.accent, 0.225, 0.06, 0, 0, 0.035, { seg: 12, rx: Math.PI / 2 });
+        p.torus(BRONZE_LIGHT, 0.225, 0.02, Math.PI * 2, 0, 0, 0.03);
+        p.torus(PAL.white, 0.12, 0.016, Math.PI * 2, 0, 0, 0.05);
+        p.sphere(BRONZE_LIGHT, 0.045, 0, 0, 0.065, { sz: 0.6 });
+        p.box(LASH, 0.035, 0.16, 0.03, 0, 0, -0.015);
+        break;
+      case 'shield_elite_rome': {
+        // curved scutum: three angled panels the light shades into a curve,
+        // iron-edged, with one bright gold dot dead centre for rank
+        p.box(0xa93226, 0.15, 0.42, 0.02, 0, 0, 0.03);
+        for (const sx of [-1, 1]) {
+          // the wings fall away behind the centre panel, so the shield is
+          // convex toward whoever it is pointed at
+          p.box(0xa93226, 0.11, 0.42, 0.02, sx * 0.12, 0, 0.005, { ry: sx * 0.45, shade: 0.93 });
+          for (const sy of [-1, 1]) {
+            p.box(IRON_DARK, 0.11, 0.022, 0.022, sx * 0.12, sy * 0.21, 0.007, { ry: sx * 0.45 });
+          }
+        }
+        for (const sy of [-1, 1]) p.box(IRON_DARK, 0.15, 0.022, 0.024, 0, sy * 0.21, 0.032);
+        p.cyl(PAL.gold, 0.042, 0.052, 0.02, 0, 0, 0.045, { seg: 8, rx: Math.PI / 2 });
+        p.sphere(PAL.goldBright, 0.038, 0, 0, 0.06, { seg: 6 });
+        p.box(PAL.woodDark, 0.02, 0.1, 0.02, 0, 0, -0.01);
+        break;
+      }
+      // ---------------- quivers
+      // All three cant the same way, over the right shoulder, so they break
+      // the back's outline; the fletchings are what tell them apart from
+      // behind — cream and lapis, white and blue, pale and red.
+      case 'quiver_egypt':
+        p.cyl(HIDE, 0.042, 0.048, 0.28, 0.02, -0.055, -0.075, { seg: 6, rz: -0.45 });
+        p.cyl(PAL.gold, 0.05, 0.05, 0.028, 0.08, 0.065, -0.075, { seg: 6, rz: -0.45 });
+        p.cyl(st.accent, 0.048, 0.048, 0.03, 0.037, -0.03, -0.075, { seg: 6, rz: -0.45 });
+        p.box(FLETCH, 0.045, 0.055, 0.04, 0.115, 0.125, -0.075, { rz: -0.45 });
+        p.box(st.accent, 0.028, 0.045, 0.028, 0.133, 0.16, -0.08, { rz: -0.45 });
+        break;
+      case 'quiver_greece':
+        p.cyl(PAL.woodDark, 0.04, 0.045, 0.26, 0.035, -0.05, -0.072, { seg: 6, rz: -0.3 });
+        p.cyl(st.accent, 0.048, 0.048, 0.045, 0.06, 0.045, -0.072, { seg: 6, rz: -0.3 });
+        p.cyl(BRONZE_LIGHT, 0.046, 0.042, 0.024, 0.073, 0.088, -0.072, { seg: 6, rz: -0.3 });
+        p.box(PAL.white, 0.045, 0.055, 0.038, 0.09, 0.14, -0.072, { rz: -0.3 });
+        p.box(st.accent, 0.032, 0.045, 0.028, 0.072, 0.163, -0.048, { rz: -0.35 });
+        break;
+      case 'quiver_rome':
+        p.cyl(0x5a4632, 0.041, 0.047, 0.27, 0.028, -0.05, -0.074, { seg: 6, rz: -0.35 });
+        p.cyl(IRON, 0.049, 0.045, 0.024, 0.078, 0.073, -0.074, { seg: 6, rz: -0.35 });
+        p.cyl(st.accent, 0.048, 0.048, 0.036, 0.068, 0.05, -0.074, { seg: 6, rz: -0.35 });
+        p.cyl(st.accent, 0.045, 0.045, 0.028, 0.008, -0.1, -0.074, { seg: 6, rz: -0.35 });
+        p.box(FLETCH, 0.045, 0.055, 0.038, 0.103, 0.13, -0.074, { rz: -0.35 });
+        p.box(0xb03a2e, 0.028, 0.042, 0.028, 0.086, 0.16, -0.074, { rz: -0.35 });
+        break;
+      // ---------------- greaves and bracers
+      case 'greave_greece':
+        // bronze on the shins: the hoplite is the only unit with metal there
+        p.cyl(BRONZE_LIGHT, 0.062, 0.072, 0.19, 0, -0.11, 0.015, { seg: 7, sz: 0.8 });
+        p.sphere(BRONZE_LIGHT, 0.066, 0, -0.01, 0.022, { seg: 5, sz: 0.72, sy: 0.8 });
+        break;
+      case 'bracer_egypt':
+        p.cyl(0x6b4f33, 0.034, 0.036, 0.09, 0.045, 0, 0, { seg: 6, rz: Math.PI / 2 });
+        p.cyl(PAL.gold, 0.039, 0.039, 0.015, 0.082, 0, 0, { seg: 6, rz: Math.PI / 2 });
+        p.cyl(st.accent, 0.039, 0.039, 0.013, 0.012, 0, 0, { seg: 6, rz: Math.PI / 2 });
+        break;
+      case 'bracer_rome':
+        p.cyl(0x5a4632, 0.034, 0.038, 0.1, 0.045, 0, 0, { seg: 6, rz: Math.PI / 2 });
+        p.cyl(st.accent, 0.041, 0.041, 0.013, 0.085, 0, 0, { seg: 6, rz: Math.PI / 2 });
+        p.cyl(st.accent, 0.042, 0.042, 0.013, 0.008, 0, 0, { seg: 6, rz: Math.PI / 2 });
+        break;
+    }
+  });
+}
 // ---------------------------------------------------------------- props
 export function propGeo(kind: string, faction?: Faction): THREE.BufferGeometry {
   return cached(`p_${kind}_${faction ?? 'x'}`, p => {

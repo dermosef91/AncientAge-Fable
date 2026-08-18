@@ -3,13 +3,13 @@
 import * as THREE from 'three';
 import { BUILDINGS, MAP_H, MAP_W, UNITS } from '../core/config';
 import type {
-  Building, BuildingTypeId, NodeKind, ResourceNode, SimEvent, Unit, UnitTypeId
+  Building, BuildingTypeId, Faction, NodeKind, ResourceNode, SimEvent, Unit, UnitTypeId
 } from '../core/types';
 import { clamp, lerp } from '../core/utils';
 import { heightAt, WATER_Y } from '../sim/map';
 import type { World } from '../sim/world';
 import {
-  assets, instantiateCharacter, LEFT_HAND, RIGHT_HAND, SPINE, VILLAGER_CLIPS, type CharAsset
+  instantiateCharacter, LEFT_HAND, RIGHT_HAND, SPINE, VILLAGER_CLIPS, type CharAsset
 } from './assets';
 import { arrowGeo, boulderGeo, Decals, Fires, Flags, Markers, Particles } from './effects';
 import {
@@ -17,6 +17,9 @@ import {
   scaffoldGeo, toolGeo, unitGeo, weaponGeo, type ToolKind
 } from './models';
 import { MAT } from './parts';
+import {
+  CHARIOT_RIDER_POS, CHARIOT_RIDER_SCALE, fitKit, riggedAsset, SOLDIER_SCALE
+} from './soldierKit';
 import { TerrainView } from './terrain';
 
 const CAM_DIR = new THREE.Vector3(0.42, 0.82, 0.42).normalize();
@@ -25,6 +28,24 @@ const CAM_DIR = new THREE.Vector3(0.42, 0.82, 0.42).normalize();
 const MARCH_DUST = new Set<UnitTypeId>([
   'spearman', 'archer', 'hoplite', 'legionary', 'mercenary', 'boar'
 ]);
+
+/**
+ * The slice of a combat clip that reads as one blow, in clip seconds. The
+ * library's clips are long — a whole draw-and-shoot runs five seconds — so
+ * each unit uses only the stretch where the blow actually happens, scrubbed
+ * across one attack cooldown by driveAttack.
+ */
+interface AttackAnim { clip: string; from: number; to: number }
+const ATTACK_ANIM: Partial<Record<UnitTypeId, AttackAnim>> = {
+  villager: { clip: VILLAGER_CLIPS.attack, from: 0.4, to: 1.8 },
+  spearman: { clip: VILLAGER_CLIPS.attack, from: 0.5, to: 1.6 },
+  hoplite: { clip: VILLAGER_CLIPS.attack, from: 0.45, to: 1.65 },
+  mercenary: { clip: VILLAGER_CLIPS.attack, from: 0.5, to: 1.6 },
+  legionary: { clip: VILLAGER_CLIPS.slash, from: 0.15, to: 1.25 },
+  archer: { clip: VILLAGER_CLIPS.shoot, from: 2.2, to: 3.8 },
+  chariot: { clip: VILLAGER_CLIPS.shoot, from: 2.2, to: 3.9 }
+};
+
 
 interface UnitView {
   group: THREE.Group;
@@ -47,8 +68,13 @@ interface UnitView {
   actions: Map<string, THREE.AnimationAction> | null;
   clip: string;
   mats: THREE.MeshStandardMaterial[];
+  /** War-kit strapped to the rig — shares one material, flashed by swap. */
+  kit: THREE.Mesh[];
   /** Multiplier that restores world size to a prop parented to a hand bone. */
   propScale: number;
+  /** A rigged figure riding a procedural machine: the vehicle owns the
+   *  motion, the rig only animates the crew standing on it. */
+  vehicle: boolean;
 }
 
 /**
@@ -373,6 +399,10 @@ export class GameView {
           const v = this.unitViews.get(e.id);
           if (v) {
             v.dying = 0;
+            // The killing blow lands while the unit is lit by its own damage
+            // flash, and nothing clears it once the view leaves syncUnits —
+            // so a body would fall in blank white. Put its colour back first.
+            this.setFlash(v, false);
             if (v.actions) {
               // play the death clip once and hold the final pose
               for (const a of v.actions.values()) a.fadeOut(0.15);
@@ -522,9 +552,27 @@ export class GameView {
       // animation
       const phase = u.id * 1.37;
       if (v.mixer) {
-        // rigged character: the clips carry the motion
         v.mixer.update(rdt);
-        this.setClip(v, this.villagerClip(u, moving));
+        this.setClip(v, this.unitClip(u, moving));
+        this.driveAttack(v, u);
+      }
+      // Marching feet raise dust, whether the legs are animated or faked. The
+      // rate is per-unit and deliberately low, so one scout barely stirs the
+      // ground and an army trails a plume.
+      if (moving && !u.water) {
+        const siege = u.type === 'ram' || u.type === 'catapult';
+        const kick = u.type === 'chariot' ? 8 : siege ? 6 : MARCH_DUST.has(u.type) ? 1.5 : 0;
+        if (kick > 0 && Math.random() < rdt * kick) {
+          this.particles.spawn(
+            x + (Math.random() - 0.5) * 0.3, 0.08, z + (Math.random() - 0.5) * 0.3,
+            0, 0.35 + Math.random() * 0.3, 0, 0.45 + Math.random() * 0.35,
+            0.14 + Math.random() * 0.1, 0xd9c8a0, 0.5
+          );
+        }
+      }
+
+      if (v.mixer && !v.vehicle) {
+        // rigged character: the clips carry the motion
         v.group.position.set(x, y, z);
         v.group.rotation.set(0, u.dir, 0);
       } else if (u.water) {
@@ -536,17 +584,7 @@ export class GameView {
         const speed = u.type === 'chariot' ? 14 : siege ? 5 : 11;
         y += Math.abs(Math.sin(time * speed + phase)) * (u.type === 'chariot' ? 0.03 : siege ? 0.02 : 0.055);
         v.group.rotation.z = Math.sin(time * speed + phase) * (siege ? 0.018 : 0.05);
-        // Marching feet raise dust. The rate is per-unit and deliberately low,
-        // so one scout barely stirs the ground and an army trails a plume.
-        const kick = u.type === 'chariot' ? 8 : siege ? 6 : MARCH_DUST.has(u.type) ? 1.5 : 0;
-        if (kick > 0 && Math.random() < rdt * kick) {
-          this.particles.spawn(
-            x + (Math.random() - 0.5) * 0.3, 0.08, z + (Math.random() - 0.5) * 0.3,
-            0, 0.35 + Math.random() * 0.3, 0, 0.45 + Math.random() * 0.35,
-            0.14 + Math.random() * 0.1, 0xd9c8a0, 0.5
-          );
-        }
-      } else if (u.type === 'ram' || u.type === 'catapult') {
+      } else if (u.type === 'ram' || u.type === 'catapult' || v.vehicle) {
         v.group.rotation.z = 0;   // timber does not breathe
       } else {
         // idle breathing
@@ -554,7 +592,7 @@ export class GameView {
         const s = 1 + Math.sin(time * 2.2 + phase) * 0.012;
         if (v.body) v.body.scale.y = s;
       }
-      if (!v.mixer) {
+      if (!v.mixer || v.vehicle) {
         v.group.position.set(x, y, z);
         v.group.rotation.y = u.dir;
       }
@@ -621,24 +659,12 @@ export class GameView {
         if (v.carry && showCarry && BASKET_LOADS.has(v.carryKind!)) this.levelProp(v.carry, u.dir);
       }
 
-      // damage flash
-      const flash = w.time - u.lastHitT < 0.12;
-      if (flash !== v.flashing) {
-        v.flashing = flash;
-        if (v.body) {
-          v.body.material = flash ? MAT.flash : MAT.main;
-        } else {
-          for (const m of v.mats) {
-            m.emissive.setHex(flash ? 0xffffff : 0x000000);
-            m.emissiveIntensity = flash ? 0.85 : 0;
-          }
-        }
-      }
+      this.setFlash(v, w.time - u.lastHitT < 0.12);
     }
     // remove views for units that vanished without a death event (shouldn't happen, safety)
     for (const [id, v] of this.unitViews) {
       if (!w.units.has(id)) {
-        this.scene.remove(v.group);
+        this.disposeUnitView(v);
         this.unitViews.delete(id);
       }
     }
@@ -648,16 +674,19 @@ export class GameView {
     const w = this.world;
     const faction = w.players[u.owner].faction;
 
-    // Villagers use their civilization's sculpted, animated model once loaded;
-    // the wilds' refugees and deserters share the rig with neutral characters.
-    const rigged =
-      u.type === 'villager' ? assets.villagers[faction] :
-      u.type === 'refugee' ? assets.wilds.woman :
-      u.type === 'mercenary' ? assets.wilds.bandit : null;
-    if (rigged) return this.createRiggedVillager(u, rigged);
+    // Every person on the field is the same sculpted, animated body — what
+    // separates a villager from a hoplite is the kit strapped onto it. The
+    // wilds' refugees and deserters ride the rig as neutral characters.
+    const rigged = riggedAsset(u.type, faction);
+    if (rigged) {
+      if (u.type === 'chariot') return this.createChariot(u, rigged, faction);
+      return this.createRiggedUnit(u, rigged, faction);
+    }
 
+    // No sculpted model for this one — fall back to procedural art, and put
+    // the blocky rider back in the chariot since no rig will stand in it.
     const group = new THREE.Group();
-    const body = new THREE.Mesh(unitGeo(u.type, faction), MAT.main);
+    const body = new THREE.Mesh(unitGeo(u.type, faction, u.type === 'chariot'), MAT.main);
     body.castShadow = true;
     group.add(body);
     let weapon: THREE.Mesh | null = null;
@@ -679,14 +708,21 @@ export class GameView {
       pack: null, packAnchor: group,
       carry: null, carryKind: null, carryAnchor: group,
       flashing: false, dying: -1, type: u.type, water: u.water,
-      mixer: null, actions: null, clip: '', mats: [], propScale: 1
+      mixer: null, actions: null, clip: '', mats: [], kit: [], propScale: 1, vehicle: false
     };
   }
 
-  private createRiggedVillager(u: Unit, asset: CharAsset): UnitView {
+  /**
+   * A sculpted character, dressed for whatever it is. Soldiers get their
+   * civilization's war-kit bolted to the rig here; villagers get nothing,
+   * because their kit is the tools the view swaps as their orders change.
+   */
+  private createRiggedUnit(u: Unit, asset: CharAsset, faction: Faction): UnitView {
     const { root, mixer, bones, boneScale } = instantiateCharacter(asset);
+    const propScale = 1 / (boneScale || 1);
 
-    // Own the materials so a damage flash affects only this villager.
+    // Own the materials so a damage flash affects only this unit. The whole
+    // kit shares one clone, so armour lights up with the man wearing it.
     const mats: THREE.MeshStandardMaterial[] = [];
     root.traverse(o => {
       const mesh = o as THREE.Mesh;
@@ -699,6 +735,12 @@ export class GameView {
       });
       mesh.material = cloned.length === 1 ? cloned[0] : cloned;
     });
+    // The kit is fitted in the bind pose, before any clip has moved a bone.
+    // It keeps the shared vertex-colour material, so a whole army's armour is
+    // one material; the damage flash swaps it the way procedural units do.
+    const kit = fitKit(u.type, faction, root, bones, propScale);
+    const scale = SOLDIER_SCALE[u.type];
+    if (scale) root.scale.multiplyScalar(scale);
 
     const actions = new Map<string, THREE.AnimationAction>();
     for (const [name, clip] of asset.clips) {
@@ -738,8 +780,35 @@ export class GameView {
       actions,
       clip: VILLAGER_CLIPS.idle,
       mats,
-      propScale: 1 / (boneScale || 1)
+      kit,
+      propScale,
+      vehicle: false
     };
+  }
+
+  /**
+   * The war chariot: a procedural machine with a sculpted archer standing in
+   * the cab. The cab owns the motion — the rig only animates the man on it.
+   */
+  private createChariot(u: Unit, asset: CharAsset, faction: Faction): UnitView {
+    const v = this.createRiggedUnit(u, asset, faction);
+    const group = new THREE.Group();
+    const body = new THREE.Mesh(unitGeo('chariot', faction), MAT.main);
+    body.castShadow = true;
+    group.add(body);
+
+    // Stand the rider on the cab floor. Adding the rig to the cab reparents
+    // it out of the scene, so the whole chariot moves as one.
+    const rider = v.group;
+    rider.scale.multiplyScalar(CHARIOT_RIDER_SCALE);
+    rider.position.set(...CHARIOT_RIDER_POS);
+    group.add(rider);
+
+    this.scene.add(group);
+    v.group = group;
+    v.body = body;
+    v.vehicle = true;
+    return v;
   }
 
   /** The kit a job calls for: an axe for timber, a pick for the quarry… */
@@ -836,10 +905,13 @@ export class GameView {
   }
 
   /** Pick the clip that matches what this unit is currently doing. */
-  private villagerClip(u: Unit, moving: boolean): string {
+  private unitClip(u: Unit, moving: boolean): string {
     const C = VILLAGER_CLIPS;
-    if (u.task.type === 'attack') return C.attack;
-    if (moving) return C.walk;
+    // Marching comes first: a soldier ordered onto a target is on the attack
+    // task the whole way there, and must not slide across the map mid-thrust.
+    // A chariot is the exception — its wheels carry it, the archer stands.
+    if (moving) return u.type === 'chariot' ? C.idle : C.walk;
+    if (u.task.type === 'attack') return ATTACK_ANIM[u.type]?.clip ?? C.attack;
     switch (u.task.type) {
       case 'gather': {
         const n = this.world.nodes.get(u.task.nodeId);
@@ -849,6 +921,23 @@ export class GameView {
       case 'build': return C.chop;
       default: return C.idle;
     }
+  }
+
+  /**
+   * Scrub a combat clip from the simulation's own attack timer instead of
+   * letting it free-run, so the blow always lands on the beat the sim strikes.
+   * Each clip is cut down to the window that actually reads as the blow —
+   * the wind-up and thrust, the slash, the draw and loose — and that window
+   * is stretched across one attack cooldown.
+   */
+  private driveAttack(v: UnitView, u: Unit) {
+    const anim = ATTACK_ANIM[u.type];
+    if (!anim || v.clip !== anim.clip) return;
+    const action = v.actions?.get(anim.clip);
+    if (!action) return;
+    const period = Math.max(0.3, UNITS[u.type].cooldown);
+    const k = clamp(u.attackAnimT / period, 0, 1);
+    action.time = anim.from + (anim.to - anim.from) * k;
   }
 
   private setClip(v: UnitView, name: string, fade = 0.22) {
@@ -869,12 +958,14 @@ export class GameView {
       const v = this.dyingViews[i];
       v.dying += rdt;
       const t = v.dying;
-      if (v.mixer) {
+      // the man aboard a wrecked chariot still falls, but the hull goes down
+      // the way any other machine does
+      v.mixer?.update(rdt);
+      if (v.mixer && !v.vehicle) {
         // rigged: let the death clip play out, then sink away
-        v.mixer.update(rdt);
         if (t > 1.9) v.group.position.y -= rdt * 0.55;
         if (t > 2.9) {
-          this.scene.remove(v.group);
+          this.disposeUnitView(v);
           this.dyingViews.splice(i, 1);
         }
         continue;
@@ -888,10 +979,45 @@ export class GameView {
         v.group.position.y -= rdt * 0.75;
       }
       if (t > 1.1) {
-        this.scene.remove(v.group);
+        this.disposeUnitView(v);
         this.dyingViews.splice(i, 1);
       }
     }
+  }
+
+  /**
+   * Light a unit up white for an instant as a blow lands. Shared
+   * vertex-colour art — a procedural body, a soldier's kit — is swapped to
+   * the flash material; a sculpted character's own cloned materials are lit
+   * instead. A chariot has both: the cab, and the man standing on it.
+   */
+  private setFlash(v: UnitView, on: boolean) {
+    if (on === v.flashing) return;
+    v.flashing = on;
+    if (v.body) v.body.material = on ? MAT.flash : MAT.main;
+    for (const mesh of v.kit) mesh.material = on ? MAT.flash : MAT.main;
+    for (const m of v.mats) {
+      m.emissive.setHex(on ? 0xffffff : 0x000000);
+      m.emissiveIntensity = on ? 0.85 : 0;
+    }
+  }
+
+  /**
+   * Take a unit's view off the field for good. A sculpted character owns
+   * clones of the model's materials, and a skeleton of its own whose bone
+   * matrices the renderer keeps in a GPU texture — an army loses a great many
+   * of both, so they go back when the body does. Geometry is shared and
+   * cached across every unit, and stays.
+   */
+  private disposeUnitView(v: UnitView) {
+    this.scene.remove(v.group);
+    v.mixer?.stopAllAction();
+    for (const m of v.mats) m.dispose();
+    v.mats.length = 0;
+    v.group.traverse(o => {
+      const skinned = o as THREE.SkinnedMesh;
+      if (skinned.isSkinnedMesh) skinned.skeleton.dispose();
+    });
   }
 
   // ---------------- buildings ----------------
@@ -1312,6 +1438,10 @@ export class GameView {
   }
 
   dispose() {
+    for (const v of this.unitViews.values()) this.disposeUnitView(v);
+    for (const v of this.dyingViews) this.disposeUnitView(v);
+    this.unitViews.clear();
+    this.dyingViews.length = 0;
     this.terrain.dispose();
     this.fires.clear();
     this.flags.clear();
