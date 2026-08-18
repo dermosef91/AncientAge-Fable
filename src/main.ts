@@ -1,6 +1,6 @@
 // Ancient Age — entry point. Boots the faction select screen and runs matches.
 import './styles.css';
-import { DIFFICULTY, TICK } from './core/config';
+import { DIFFICULTY, isTownCenter, TICK } from './core/config';
 import type { Difficulty, Faction } from './core/types';
 import { pick, makeRng } from './core/utils';
 import { AIController } from './sim/ai';
@@ -238,13 +238,13 @@ function exposeDebug() {
     win() {
       if (!game) return;
       for (const b of game.world.buildings.values()) {
-        if (b.owner === 1 && b.type === 'towncenter') game.world.destroyBuilding(b, 0);
+        if (b.owner === 1 && isTownCenter(b.type)) game.world.destroyBuilding(b, 0);
       }
     },
     lose() {
       if (!game) return;
       for (const b of game.world.buildings.values()) {
-        if (b.owner === 0 && b.type === 'towncenter') game.world.destroyBuilding(b, 1);
+        if (b.owner === 0 && isTownCenter(b.type)) game.world.destroyBuilding(b, 1);
       }
     }
   };

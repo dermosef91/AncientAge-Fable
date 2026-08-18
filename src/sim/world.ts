@@ -1,9 +1,9 @@
 // World: all simulation state plus entity management and player commands.
 // Both the UI and the AI issue orders exclusively through these methods.
 import {
-  BOONS, BUILDINGS, CARRY_CAP, ENC, FACTIONS, FARM_FOOD, GATHER_RATE, MAP_H, MAP_W,
-  MARKET_BUY_GOLD, MARKET_LOT, MARKET_SELL_GOLD, MAX_LEVEL, NODE_AMOUNT, POP_MAX, SETTLEMENTS,
-  TECHS, UNITS, WILDS, type Cost
+  availableTo, BOONS, BUILDINGS, CARRY_CAP, ENC, FACTIONS, FARM_FOOD, GATHER_RATE, isTownCenter,
+  MAP_H, MAP_W, MARKET_BUY_GOLD, MARKET_LOT, MARKET_SELL_GOLD, MAX_LEVEL, NODE_AMOUNT, POP_MAX,
+  SETTLEMENTS, TECHS, UNITS, WILDS, type Cost
 } from '../core/config';
 import type {
   Building, BuildingTypeId, EncounterSite, Faction, NodeKind, PlayerState, Projectile,
@@ -180,6 +180,13 @@ export class World {
     return base + (this.players[owner].techs.has('masonry') ? 1 : 0);
   }
 
+  /** How far a building lifts the fog. Egypt's Cartography sharpens its Obelisks. */
+  buildingVision(owner: number, type: BuildingTypeId): number {
+    const base = BUILDINGS[type].vision ?? 7.5;
+    if (type === 'obelisk' && this.players[owner].techs.has('cartography')) return base * 1.6;
+    return base;
+  }
+
   buildingCost(owner: number, type: BuildingTypeId): Cost {
     const p = this.players[owner];
     const f = FACTIONS[p.faction];
@@ -187,7 +194,12 @@ export class World {
     const out: Cost = {};
     let mul = f.bonus.buildingCostMul ?? 1;
     if (type === 'farm' && f.bonus.farmCostMul) mul = f.bonus.farmCostMul;
-    for (const k in base) out[k as ResType] = Math.round((base[k as ResType] ?? 0) * mul);
+    // Greece quarries its own marble: the stone component of every price falls.
+    const stoneMul = p.techs.has('marble') ? 0.85 : 1;
+    for (const k in base) {
+      const r = k as ResType;
+      out[r] = Math.round((base[r] ?? 0) * mul * (r === 'stone' ? stoneMul : 1));
+    }
     return out;
   }
 
@@ -202,6 +214,7 @@ export class World {
     const res = kind === 'farm' ? 'food' : RES_OF_NODE[kind];
     if (res === 'food' && f.bonus.foodRateMul) r *= f.bonus.foodRateMul;
     if (kind === 'farm' && p.techs.has('irrigation')) r *= 1.25;
+    if (kind === 'stone' && p.techs.has('marble')) r *= 1.25;
     if (kind === 'fish' && this.hasBuilt(owner, 'lighthouse')) r *= 1.3;
     return r * p.gatherMul;
   }
@@ -237,7 +250,7 @@ export class World {
       carryKind: null, carryAmt: 0, gatherT: 0, slot: -1,
       cooldown: 0, attackAnimT: 99, scanT: Math.random() * 0.5,
       lastHitT: -99, idleT: 0, water: !!UNITS[type].water, stuckT: 0,
-      hold: false, post: null
+      hold: false, post: null, speedAura: 1
     };
     this.units.set(u.id, u);
     this.players[owner].popUsed += UNITS[type].pop;
@@ -271,7 +284,7 @@ export class World {
       if (def.pop) this.players[owner].popCap = Math.min(POP_MAX, this.players[owner].popCap + def.pop);
       this.noteBuilt(owner, type, 1);
     }
-    if (type === 'towncenter') this.refreshTcPos(owner);
+    if (isTownCenter(type)) this.refreshTcPos(owner);
     return b;
   }
 
@@ -321,7 +334,7 @@ export class World {
   refreshTcPos(owner: number) {
     let fallback: Building | null = null;
     for (const b of this.buildings.values()) {
-      if (b.owner !== owner || b.type !== 'towncenter') continue;
+      if (b.owner !== owner || !isTownCenter(b.type)) continue;
       if (b.built) { this.tcPos[owner] = { x: b.x, z: b.z }; return; }
       fallback = b;
     }
@@ -331,7 +344,7 @@ export class World {
   countTownCenters(owner: number): number {
     let n = 0;
     for (const b of this.buildings.values()) {
-      if (b.owner === owner && b.type === 'towncenter') n++;
+      if (b.owner === owner && isTownCenter(b.type)) n++;
     }
     return n;
   }
@@ -382,7 +395,14 @@ export class World {
         p.popUsed = Math.max(0, p.popUsed - UNITS[q.unit].pop);
       }
       if (q.kind === 'research' && q.tech) this.refund(b.owner, TECHS[q.tech].cost, 1);
-      if (q.kind === 'upgrade' && q.to) this.refund(b.owner, BUILDINGS[q.to].cost, 1);
+      // Growth is paid for up front and is the costliest thing in the queue.
+      // Losing the building carrying it used to end the match, so swallowing
+      // the payment never showed; a settlement can hold several town centers
+      // now, and demolishing one to reposition it must not burn the treasury.
+      if (q.kind === 'level' && q.level !== undefined) {
+        this.refund(b.owner, SETTLEMENTS[q.level].cost, 1);
+      }
+      if (q.kind === 'upgrade' && q.to) this.refund(b.owner, this.buildingCost(b.owner, q.to), 1);
     }
     this.buildings.delete(b.id);
   }
@@ -411,7 +431,7 @@ export class World {
     if (byOwner >= 0 && byOwner !== b.owner) this.players[byOwner].stats.razed++;
     this.emit({ t: 'boom', id: b.id, x: b.x, z: b.z, size: b.size, bType: b.type, owner: b.owner });
     this.removeBuilding(b);
-    if (b.type === 'towncenter') this.checkTownCenters(b.owner);
+    if (isTownCenter(b.type)) this.checkTownCenters(b.owner);
   }
 
   /** A civilization falls when its last town center is gone. */
@@ -429,6 +449,8 @@ export class World {
   // ---------- Placement validation ----------
   canPlace(owner: number, type: BuildingTypeId, cx: number, cz: number): { ok: boolean; reason?: string } {
     const def = BUILDINGS[type];
+    if (!availableTo(def, this.players[owner].faction))
+      return { ok: false, reason: 'Not built by your people' };
     if (cx < 1 || cz < 1 || cx + def.size >= MAP_W - 1 || cz + def.size >= MAP_H - 1)
       return { ok: false, reason: 'Out of bounds' };
     let touchesOcean = false;
@@ -625,7 +647,7 @@ export class World {
   /** Begin growing the settlement to the next level at a town center. */
   startLevelUp(bId: number): boolean {
     const b = this.buildings.get(bId);
-    if (!b || !b.built || b.type !== 'towncenter') return false;
+    if (!b || !b.built || !isTownCenter(b.type)) return false;
     const p = this.players[b.owner];
     const target = p.level + 1;
     if (target > MAX_LEVEL) return false;
@@ -643,11 +665,22 @@ export class World {
     return true;
   }
 
+  /**
+   * Where a technology is studied. A town center that has become an Acropolis
+   * is still the place its civilization keeps The Wheel and Masonry — but the
+   * reverse does not hold: what the Acropolis teaches, only it teaches.
+   */
+  researchedAt(tech: { at: BuildingTypeId }, type: BuildingTypeId): boolean {
+    return tech.at === type || (tech.at === 'towncenter' && isTownCenter(type));
+  }
+
   startResearch(bId: number, techId: string): boolean {
     const b = this.buildings.get(bId);
     const tech = TECHS[techId];
     if (!b || !b.built || !tech) return false;
     const p = this.players[b.owner];
+    if (!availableTo(tech, p.faction)) return false;
+    if (!this.researchedAt(tech, b.type)) return false;
     if (!this.levelOk(b.owner, tech.level)) {
       if (b.owner === 0) {
         this.emit({ t: 'toast', owner: 0, msg: `Requires a ${SETTLEMENTS[tech.level].name}`, kind: 'warn' });
@@ -655,7 +688,12 @@ export class World {
       return false;
     }
     if (p.techs.has(techId)) return false;
-    if (b.queue.some(q => q.kind === 'research' && q.tech === techId)) return false;
+    // Already being studied — anywhere. Checking only this building would let a
+    // civilization with three Obelisks pay for Cartography three times over.
+    for (const other of this.buildings.values()) {
+      if (other.owner !== b.owner) continue;
+      if (other.queue.some(q => q.kind === 'research' && q.tech === techId)) return false;
+    }
     if (b.queue.length >= 5) return false;
     if (!this.canAfford(b.owner, tech.cost)) {
       if (b.owner === 0) this.emit({ t: 'toast', owner: 0, msg: 'Not enough resources', kind: 'warn' });
@@ -676,7 +714,7 @@ export class World {
     }
     if (q.kind === 'research' && q.tech) this.refund(b.owner, TECHS[q.tech].cost, 1);
     if (q.kind === 'level' && q.level !== undefined) this.refund(b.owner, SETTLEMENTS[q.level].cost, 1);
-    if (q.kind === 'upgrade' && q.to) this.refund(b.owner, BUILDINGS[q.to].cost, 1);
+    if (q.kind === 'upgrade' && q.to) this.refund(b.owner, this.buildingCost(b.owner, q.to), 1);
     b.queue.splice(idx, 1);
   }
 
@@ -687,6 +725,7 @@ export class World {
     const to = BUILDINGS[b.type].upgradesTo;
     if (!to) return false;
     const def = BUILDINGS[to];
+    if (!availableTo(def, this.players[b.owner].faction)) return false;
     if (!this.levelOk(b.owner, def.level)) {
       if (b.owner === 0) {
         this.emit({ t: 'toast', owner: 0, msg: `Requires a ${SETTLEMENTS[def.level].name}`, kind: 'warn' });
@@ -694,11 +733,14 @@ export class World {
       return false;
     }
     if (b.queue.some(q => q.kind === 'upgrade')) return false;
-    if (!this.canAfford(b.owner, def.cost)) {
+    // Priced like any other construction, so faction discounts and Marble
+    // Quarry reach it too — the tech tree quotes this number.
+    const cost = this.buildingCost(b.owner, to);
+    if (!this.canAfford(b.owner, cost)) {
       if (b.owner === 0) this.emit({ t: 'toast', owner: 0, msg: 'Not enough resources', kind: 'warn' });
       return false;
     }
-    this.pay(b.owner, def.cost);
+    this.pay(b.owner, cost);
     b.queue.push({ kind: 'upgrade', to, t: 0, total: def.buildTime });
     return true;
   }
@@ -837,10 +879,9 @@ export class World {
     if (!b) return;
     this.emit({ t: 'boom', id: b.id, x: b.x, z: b.z, size: b.size, bType: b.type, owner: b.owner });
     this.removeBuilding(b, b.built ? 0.25 : 0.6);
-    if (b.type === 'towncenter' && this.winner < 0) {
-      this.winner = b.owner === 0 ? 1 : 0;
-      this.emit({ t: 'victory', winner: this.winner });
-    }
+    // Pulling down a town center only ends the match if it was the last one —
+    // the same test a razed one gets, now that a settlement can hold several.
+    if (isTownCenter(b.type)) this.checkTownCenters(b.owner);
   }
 
   setRally(bId: number, x: number, z: number) {
@@ -919,6 +960,26 @@ export class World {
    * Nearest enemy building within radius. Siege engines use this directly —
    * they exist to break stone and never chase soft targets.
    */
+  /**
+   * Is one of this owner's own finished buildings within r? Rome's Roads read
+   * this to decide whether a unit is marching on home ground.
+   */
+  ownBuildingNear(owner: number, x: number, z: number, r: number): boolean {
+    const x0 = Math.floor((x - r) / 2), x1 = Math.floor((x + r) / 2);
+    const z0 = Math.floor((z - r) / 2), z1 = Math.floor((z + r) / 2);
+    const rr = r * r;
+    for (let hz = z0; hz <= z1; hz++) for (let hx = x0; hx <= x1; hx++) {
+      const arr = this.buildingHash.get(hz * 1024 + hx);
+      if (!arr) continue;
+      for (const id of arr) {
+        const b = this.buildings.get(id);
+        if (!b || b.owner !== owner || !b.built) continue;
+        if (dist2(b.x, b.z, x, z) <= rr) return true;
+      }
+    }
+    return false;
+  }
+
   findEnemyBuilding(owner: number, x: number, z: number, r: number): number {
     let bestB = 0; let bestBD = r * r * 1.4;
     const x0 = Math.floor((x - r) / 2), x1 = Math.floor((x + r) / 2);

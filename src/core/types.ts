@@ -14,6 +14,8 @@ export type BuildingTypeId =
   | 'range' | 'siegeworks' | 'tower' | 'wall' | 'monument' | 'dock'
   | 'market' | 'shrine' | 'temple' | 'amphitheater' | 'academy'
   | 'statue' | 'garden' | 'plaza' | 'lighthouse' | 'forum' | 'wonder'
+  // civilization uniques
+  | 'obelisk' | 'acropolis' | 'castrum'
   // encounter props (owner 2)
   | 'den' | 'camp' | 'cairn' | 'pedestal' | 'outpost';
 
@@ -109,6 +111,8 @@ export interface Unit {
   hold: boolean;            // hold position: fight in place, never chase
   post: Vec2 | null;        // leash anchor while auto-engaging
   relic?: boolean;          // carrying the Golden Idol
+  /** Speed multiplier from ground effects (Rome's Roads). Sampled, not per-tick. */
+  speedAura: number;
 }
 
 export interface QueueItem {

@@ -1,9 +1,9 @@
 // HUD: resource bar, settlement chip, objectives, selection panel with unit stats,
 // context actions, the build menu, toasts and the pause menu.
 import {
-  ARMOR_CLASS_NAME, BOONS, BUILD_MENU, BUILD_MENU_WIDE, BUILDINGS, ENC, MARKET_BUY_GOLD,
-  MARKET_LOT, MARKET_SELL_GOLD, MAX_LEVEL, RES_ORDER, SETTLEMENTS, TECHS, trainableAt, UNITS,
-  WILDS, type Cost
+  ARMOR_CLASS_NAME, availableTo, BOONS, BUILD_MENU, BUILD_MENU_WIDE, BUILDINGS, ENC,
+  isTownCenter, MARKET_BUY_GOLD, MARKET_LOT, MARKET_SELL_GOLD, MAX_LEVEL, RES_ORDER, SETTLEMENTS,
+  TECHS, trainableAt, UNITS, WILDS, type Cost
 } from '../core/config';
 import type {
   ArmorClass, Building, BuildingTypeId, ResType, SimEvent, UnitTypeId
@@ -293,8 +293,8 @@ export class HUD {
     };
 
     let html = '';
-    for (const bt of BUILD_MENU) html += card(bt, false);
-    for (const bt of BUILD_MENU_WIDE) html += card(bt, true);
+    for (const bt of BUILD_MENU) if (availableTo(BUILDINGS[bt], faction)) html += card(bt, false);
+    for (const bt of BUILD_MENU_WIDE) if (availableTo(BUILDINGS[bt], faction)) html += card(bt, true);
     this.buildSheet.innerHTML = html;
 
     this.buildSheet.querySelectorAll<HTMLElement>('.build-card').forEach(el => {
@@ -480,9 +480,12 @@ export class HUD {
         const faction = w.players[b.owner].faction;
         let html = '';
         b.queue.forEach((q, i) => {
+          // Four kinds ride this queue; an upgrade carries no `tech`, and
+          // reaching for one would have thrown.
           const art = q.kind === 'unit'
             ? thumbImg(unitThumb(q.unit!, faction), 'qthumb')
             : q.kind === 'level' ? `<span class="qlvl">${SETTLEMENTS[q.level!].numeral}</span>`
+            : q.kind === 'upgrade' ? icon('upgrade', 20)
             : icon(TECHS[q.tech!].icon, 20);
           const pct = i === 0 ? (q.t / q.total) * 100 : 0;
           html += `<button class="qslot" data-qi="${i}" title="Cancel">${art}<span class="prog" style="width:${pct}%"></span></button>`;
@@ -605,7 +608,7 @@ export class HUD {
           });
         }
         // Settlement growth lives at the town center
-        if (b.type === 'towncenter' && p.level < MAX_LEVEL) {
+        if (isTownCenter(b.type) && p.level < MAX_LEVEL) {
           const next = SETTLEMENTS[p.level + 1];
           const queued = b.queue.some(q => q.kind === 'level');
           if (!queued) {
@@ -625,7 +628,8 @@ export class HUD {
         }
         for (const tid in TECHS) {
           const tech = TECHS[tid];
-          if (tech.at !== b.type) continue;
+          if (!w.researchedAt(tech, b.type)) continue;
+          if (!availableTo(tech, p.faction)) continue;
           if (p.techs.has(tid)) continue;
           if (p.level < tech.level) continue;
           if (b.queue.some(q => q.tech === tid)) continue;
@@ -640,7 +644,8 @@ export class HUD {
         }
         // In-place upgrade (shrine -> temple)
         const upTo = BUILDINGS[b.type].upgradesTo;
-        if (upTo && !b.queue.some(q => q.kind === 'upgrade') && p.level >= BUILDINGS[upTo].level) {
+        if (upTo && availableTo(BUILDINGS[upTo], p.faction) &&
+            !b.queue.some(q => q.kind === 'upgrade') && p.level >= BUILDINGS[upTo].level) {
           addBtn(icon('upgrade', 22), BUILDINGS[upTo].name, {
             cost: costHtml(BUILDINGS[upTo].cost, 11),
             cls: 'primary',
