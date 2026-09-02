@@ -157,11 +157,27 @@ export class Minimap {
       }
       diamond(site.x, site.z, 1.9, site.kind === 'relic' ? '#ffe08a' : '#d8a94e');
     }
-    // units
+    // units — a rival hidden in the trees leaves no dot either
     for (const u of w.units.values()) {
       if (u.owner !== 0 && !exp[Math.floor(u.z) * MAP_W + Math.floor(u.x)]) continue;
+      if (u.owner === 1 && u.hidden) continue;
       ctx.fillStyle = u.owner === 0 ? '#eafff0' : u.owner === 1 ? '#ff8872' : '#d9c493';
       ctx.fillRect(u.x * s - 1.2, u.z * s - 1.2, 2.4, 2.4);
+    }
+
+    // named fords: two pale bars across the water, once found
+    for (const f of w.fords) {
+      if (!f.discovered) continue;
+      ctx.save();
+      ctx.translate(f.x * s, f.z * s);
+      ctx.fillStyle = '#bfe0f0';
+      ctx.strokeStyle = 'rgba(42,31,12,0.9)';
+      ctx.lineWidth = 0.8;
+      for (const dy of [-1.4, 1.4]) {
+        ctx.fillRect(-3.2, dy - 0.9, 6.4, 1.8);
+        ctx.strokeRect(-3.2, dy - 0.9, 6.4, 1.8);
+      }
+      ctx.restore();
     }
 
     // pings

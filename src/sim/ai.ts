@@ -94,6 +94,9 @@ export class AIController {
     let threatX = 0, threatZ = 0, threat = 0;
     for (const u of w.units.values()) {
       if (u.owner !== 0 || u.water) continue;
+      // The AI reads the world directly, but soldiers it could not see are
+      // soldiers it does not muster against — an ambush stays an ambush.
+      if (u.hidden) continue;
       const d = dist(u.x, u.z, tc.x, tc.z);
       if (d < 20) { threat++; threatX += u.x; threatZ += u.z; }
     }

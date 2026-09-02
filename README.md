@@ -143,9 +143,11 @@ you could once ignore now needs an answer.
   | Sacred games | Shrine or Temple within 11 of the Amphitheater | half again the healing reach |
 
 - **Festivals** — every settlement level-up throws one. Petals go up over one
-  roof after another, outward from your town center, a horn sounds, and for 90
-  seconds the whole city gathers 15% faster and builds 25% faster. It is the
-  one moment in the match that is nobody's emergency.
+  roof after another, outward from your town center, a horn sounds, gold
+  pennants rise above every roofline in the city and fly for the whole
+  celebration, and for 90 seconds the whole city gathers 15% faster and builds
+  25% faster. It is the one moment in the match that is nobody's emergency, and
+  you can see it from across the map.
 - **The city panel** *(the skyline button)* — income per minute with a
   sparkline for each resource, where every villager actually is (tap a line to
   take that group in hand), what your quarters are earning, and an estimate of
@@ -170,6 +172,18 @@ A neutral third power lives between the two towns, and scouting is how you
 meet it. Sites appear on the minimap as small gold diamonds once your fog
 lifts; walking up to one is what springs it.
 
+- **Read the ground** — the land the generator makes is now worth looking at:
+  - **High ground is a vantage.** Stand on a ridge or a mesa shoulder and the
+    eye carries 25% further; a bow shoots 15% further downhill and falls 10%
+    short shooting up. The selection panel says so while it applies.
+  - **Woods conceal.** A soldier standing still among trees is not drawn, not
+    on the minimap, and not auto-targeted — not even by towers — until an enemy
+    walks within 6 tiles or the soldier strikes. Forest edges are ambush
+    country now, and the rival's base alarm cannot smell what it cannot see.
+  - **Fords are named.** On river maps the carved crossings — The Reed Ford,
+    The Oxen Ford, The Old Ford — announce themselves when your fog lifts off
+    them and stay marked on the minimap. A player who knows the fords is
+    playing the map.
 - **The Scout** *(Camp, 35 food)* — fast, far-sighted, and no use whatsoever in
   a fight: shot at, it runs. Tap **Explore** and it walks the frontier by
   itself, picking the nearest worthwhile patch of unknown country and moving on

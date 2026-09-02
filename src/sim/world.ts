@@ -3,7 +3,7 @@
 import {
   availableTo, BOONS, BUILDINGS, CARRY_CAP, ENC, FACTIONS, FARM_FOOD, GATHER_RATE, isTownCenter,
   MAP_H, MAP_W, MARKET_BUY_GOLD, MARKET_LOT, MARKET_SELL_GOLD, MAX_LEVEL, NODE_AMOUNT, POP_MAX,
-  ROAD_SPEED, SCOUT, SETTLEMENTS, TECHS, UNITS, WILDS, type Cost
+  ROAD_SPEED, SCOUT, SETTLEMENTS, TECHS, TERRAIN, UNITS, WILDS, type Cost
 } from '../core/config';
 import type {
   Building, BuildingTypeId, EncounterSite, Faction, NodeKind, PlayerState, Projectile,
@@ -44,6 +44,10 @@ export class World {
   civicAt = new Int32Array(MAP_W * MAP_H);
   /** Street surface per cell: 0 none, 1 worn path, 2 laid stone. */
   civicKindAt = new Uint8Array(MAP_W * MAP_H);
+  /** Trees within TERRAIN.coverR of each cell — enough of them make it cover. */
+  coverAt = new Uint8Array(MAP_W * MAP_H);
+  /** The named crossings a great river was carved with (river archetype only). */
+  fords: { x: number; z: number; name: string; discovered: boolean }[] = [];
   /** Bumped on every civic change so the view can resync cheaply. */
   civicRev = 0;
   civicSeeded = false;
@@ -407,13 +411,36 @@ export class World {
     };
     this.nodes.set(n.id, n);
     if (kind !== 'fish') this.grid[cz * MAP_W + cx] |= F_BLOCK;
+    if (kind === 'tree') this.markCover(cx, cz, 1);
     return n;
   }
 
   removeNode(n: ResourceNode) {
     this.nodes.delete(n.id);
     if (n.kind !== 'fish') this.grid[n.cz * MAP_W + n.cx] &= ~F_BLOCK;
+    if (n.kind === 'tree') this.markCover(n.cx, n.cz, -1);
     this.emit({ t: 'nodeDepleted', nodeId: n.id, kind: n.kind, x: n.x, z: n.z });
+  }
+
+  /** A tree rose or fell: the shade it threw moves with it. */
+  private markCover(cx: number, cz: number, d: number) {
+    const R = TERRAIN.coverR, r2 = R * R + 1;
+    for (let dz = -R; dz <= R; dz++) {
+      for (let dx = -R; dx <= R; dx++) {
+        if (dx * dx + dz * dz > r2) continue;
+        const x = cx + dx, z = cz + dz;
+        if (x < 0 || z < 0 || x >= MAP_W || z >= MAP_H) continue;
+        const i = z * MAP_W + x;
+        this.coverAt[i] = Math.max(0, this.coverAt[i] + d);
+      }
+    }
+  }
+
+  /** Enough standing trees around this spot to swallow a soldier. */
+  inCover(x: number, z: number): boolean {
+    const cx = Math.floor(x), cz = Math.floor(z);
+    if (cx < 0 || cz < 0 || cx >= MAP_W || cz >= MAP_H) return false;
+    return this.coverAt[cz * MAP_W + cx] >= TERRAIN.coverTrees;
   }
 
   removeBuilding(b: Building, refundFrac = 0) {
@@ -1046,6 +1073,9 @@ export class World {
     for (const u of tmp) {
       if (u.owner === owner || u.water) continue;
       if (!includeVillagers && u.type === 'villager') continue;
+      // The trees keep their secrets from soldiers — but not from the wilds,
+      // who live in them.
+      if (u.hidden && owner !== WILDS) continue;
       // Peaceful wilds are attacked by explicit order, never by reflex.
       if (u.owner === WILDS && !this.wildThreat(u)) continue;
       const d = dist2(u.x, u.z, x, z);

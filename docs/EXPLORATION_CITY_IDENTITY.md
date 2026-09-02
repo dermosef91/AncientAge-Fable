@@ -240,7 +240,21 @@ map and away from both towns.
 
 ---
 
-### 6. Read the ground: vantage, fords and cover
+### 6. Read the ground: vantage, fords and cover — ✅ **shipped**
+
+> **What landed.** All three rules, tuned to the terrain the generator actually
+> makes (rolling land tops out near +0.35; mesa shoulders climb past +1.0, so
+> the vantage threshold is 0.55 rather than the 1.2 proposed). Standing 0.55
+> above a target is worth +15% range, and shooting up at one costs 10% —
+> measured: the same archer opens fire from 5.94 on the flat, 5.35 uphill, and
+> reaches 6.1 downhill. Ground above 0.42 widens vision by 25%. Cover is a
+> per-cell count of trees within two tiles, maintained as trees rise and fall:
+> a still soldier in cover is undrawn, unmapped and untargetable — towers
+> included, and the rival's base alarm too — until an enemy unit comes within
+> six tiles or the soldier strikes. River fords are recorded when they are
+> carved, named (The Reed Ford, The Oxen Ford, The Old Ford), announced when
+> the fog lifts off them, and kept marked on the minimap. The selection panel
+> reads the ground back: "Holds the high ground", "Hidden in the trees".
 
 **Today.** The map generator produces real terrain — heights, biomes, four
 archetypes with fords and island chains (`src/sim/map.ts:46`) — and the
@@ -718,8 +732,11 @@ minute 10.
 > **What landed.** The festival half only. Every settlement level-up grants a
 > 90-second boon (+15% gathering, +25% building) and throws a visible
 > celebration: petals and faction colours burst over one building after
-> another, rolling outward from the town center, over a gold ring on the ground
-> and a horn-and-fanfare sting. Ambient citizens and market day did not land.
+> another, rolling outward from the town center, over gold rings on the ground
+> and a horn-and-fanfare sting — and for the whole boon, every building in the
+> city flies a gold pennant above its roofline, so a festival is legible from
+> any zoom and comes down all at once when it ends. Ambient citizens and market
+> day did not land.
 
 **Today.** The city has no people in it except the ones you built. Villagers are
 all workers; the streets, plazas and gardens the game so carefully lays are

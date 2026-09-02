@@ -2,8 +2,8 @@
 // combat, projectiles, fog. Deterministic given the same command stream.
 import {
   BUILDINGS, ENC, FARM_FOOD, FARM_RESEED_COST, MAP_W, RES_ORDER, ROAD_TRADE_BONUS, SCOUT,
-  SETTLEMENTS, SIEGE_UNITS, TECHS, TRADE_BASE_GOLD, TRADE_GOLD_PER_TILE, UNITS, WILDS,
-  WONDER_COUNTDOWN
+  SETTLEMENTS, SIEGE_UNITS, TECHS, TERRAIN, TRADE_BASE_GOLD, TRADE_GOLD_PER_TILE, UNITS,
+  WILDS, WONDER_COUNTDOWN
 } from '../core/config';
 import type {
   ArmorClass, Building, DamageType, NodeKind, Projectile, ResType, Unit, UnitTypeId
@@ -11,6 +11,7 @@ import type {
 import { RES_OF_NODE } from '../core/types';
 import { angleLerp, clamp, dist, dist2 } from '../core/utils';
 import { civicLevelUp, planCivic } from './civic';
+import { heightAt } from './map';
 import { depotMulAt, recomputeAdjacency } from './districts';
 import { onWildsBuildingHit, onWildsBuildingRazed, onWildsUnitKilled, wildsReact } from './encounters';
 import { landPassableFor, waterPassable } from './pathfinding';
@@ -237,6 +238,7 @@ function findTowerTarget(world: World, b: Building, range: number): number {
   world.unitsNear(b.x, b.z, range + 0.5, tmpUnits);
   for (const u of tmpUnits) {
     if (u.owner === b.owner) continue;
+    if (u.hidden) continue;    // the watchman cannot see into the trees
     // towers don't waste arrows on grazing deer — only wilds on the attack
     if (u.owner === WILDS && !world.wildThreat(u)) continue;
     const d = dist2(u.x, u.z, b.x, b.z);
@@ -385,6 +387,17 @@ function updateUnit(world: World, u: Unit, dt: number) {
       break;
     }
   }
+}
+
+/**
+ * What the slope under an archer is worth. Shooting down from a ridge carries
+ * further; shooting up at one falls short. Melee never cares.
+ */
+function vantageMul(world: World, u: Unit, tx: number, tz: number): number {
+  const dh = heightAt(world, u.x, u.z) - heightAt(world, tx, tz);
+  if (dh >= TERRAIN.vantageDh) return TERRAIN.rangeDownhill;
+  if (dh <= -TERRAIN.vantageDh) return TERRAIN.rangeUphill;
+  return 1;
 }
 
 function isMilitary(u: Unit): boolean {
@@ -823,7 +836,7 @@ function updateAttack(world: World, u: Unit, dt: number, stats: { atk: number; s
   const tz = tu ? tu.z : tb!.z;
   const tRad = tu ? UNITS[tu.type].radius : tb!.size * 0.62;
   const reach = def.range > 0
-    ? def.range + (tu ? 0 : tb!.size * 0.45)
+    ? def.range * vantageMul(world, u, tx, tz) + (tu ? 0 : tb!.size * 0.45)
     : def.radius + tRad + 0.32;
 
   const d = dist(u.x, u.z, tx, tz);
@@ -1132,13 +1145,31 @@ function separation(world: World, dt: number) {
 }
 
 // ---------- fog ----------
+/**
+ * A soldier standing still among trees is not there, as far as the other side
+ * can see — until someone walks close enough to look in, or the soldier
+ * strikes. This is what makes a forest edge a place to wait.
+ */
+function updateConcealment(world: World, u: Unit) {
+  if (u.owner > 1 || u.water || u.task.type === 'attack') { u.hidden = false; return; }
+  if (!world.inCover(u.x, u.z)) { u.hidden = false; return; }
+  world.unitsNear(u.x, u.z, TERRAIN.concealR, tmpUnits);
+  for (const t of tmpUnits) {
+    if (t.owner <= 1 && t.owner !== u.owner && !t.water) { u.hidden = false; return; }
+  }
+  u.hidden = true;
+}
+
 function updateFog(world: World) {
   // Beacon Hill shows its holder the country from the fire.
   const beacon = world.hasBoon(0, 'beacon') ? ENC.beaconVision : 0;
   for (const u of world.units.values()) {
+    updateConcealment(world, u);
     if (u.owner === 1) { world.noteSeen(u.x, u.z); continue; }
     if (u.owner !== 0) continue;
-    const base = UNITS[u.type].vision ?? (u.water ? 9.5 : 8);
+    let base = UNITS[u.type].vision ?? (u.water ? 9.5 : 8);
+    // High ground is a vantage: the same pair of eyes carries further from it.
+    if (!u.water && heightAt(world, u.x, u.z) >= TERRAIN.vantageY) base *= TERRAIN.visionMul;
     world.markExplored(u.x, u.z, base + (u.rank ?? 0) * SCOUT.visionPerRank + beacon);
   }
   for (const b of world.buildings.values()) {
@@ -1146,5 +1177,12 @@ function updateFog(world: World) {
     // 45-stone map reveal that never needs a villager to walk to it.
     if (b.owner !== 0 || !b.built) continue;
     world.markExplored(b.x, b.z, world.buildingVision(0, b.type));
+  }
+  // A ford found is a ford remembered: named, marked, and worth knowing.
+  for (const f of world.fords) {
+    if (f.discovered || !world.isExploredWorld(f.x, f.z)) continue;
+    f.discovered = true;
+    world.emit({ t: 'toast', owner: 0, msg: `${f.name} — the river can be crossed here`, kind: 'good' });
+    world.emit({ t: 'ping', x: f.x, z: f.z, color: '#8fc7e8' });
   }
 }

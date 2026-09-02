@@ -3,8 +3,9 @@
 import {
   ARMOR_CLASS_NAME, availableTo, BOONS, BUILD_MENU, BUILD_MENU_WIDE, BUILDINGS, ENC,
   isTownCenter, MARKET_BUY_GOLD, MARKET_LOT, MARKET_SELL_GOLD, MAX_LEVEL, RES_ORDER, SCOUT,
-  SETTLEMENTS, TECHS, trainableAt, UNITS, WILDS, type Cost
+  SETTLEMENTS, TECHS, TERRAIN, trainableAt, UNITS, WILDS, type Cost
 } from '../core/config';
+import { heightAt } from '../sim/map';
 import type {
   ArmorClass, Building, BuildingTypeId, ResType, SimEvent, UnitTypeId
 } from '../core/types';
@@ -463,6 +464,7 @@ export class HUD {
             ${carryTxt}
           </div>
           ${counterHtml(u.type)}${rankTxt}
+          <div class="counters ground" data-ground hidden></div>
           <div class="hpbar"><div data-hp style="width:${(u.hp / u.maxHp) * 100}%"></div>
             <span class="hptext" data-hptext>${Math.ceil(u.hp)}/${u.maxHp}</span></div>
         </div>`;
@@ -533,6 +535,17 @@ export class HUD {
       if (hpText) hpText.textContent = `${Math.ceil(u.hp)}/${u.maxHp}`;
       const st = this.selpanel.querySelector('.status');
       if (st) st.textContent = u.relic ? 'Carrying the Idol' : u.hold ? 'Holding' : taskLabel(u.task.type);
+      // what the ground is doing for this unit right now
+      const gEl = this.selpanel.querySelector('[data-ground]') as HTMLElement | null;
+      if (gEl && u.owner === 0) {
+        const notes: string[] = [];
+        if (!u.water && heightAt(w, u.x, u.z) >= TERRAIN.vantageY) {
+          notes.push('Holds the high ground — the eye and the bow carry further');
+        }
+        if (u.hidden) notes.push('Hidden in the trees — unseen until it strikes');
+        gEl.hidden = notes.length === 0;
+        gEl.textContent = notes.join(' · ');
+      }
     }
     if (b && hpEl) {
       hpEl.style.width = (b.hp / b.maxHp) * 100 + '%';

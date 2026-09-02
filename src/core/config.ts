@@ -685,6 +685,31 @@ export const ENC = {
   springR: 2.6
 };
 
+// ---------------------------------------------------------------- terrain
+/**
+ * Reading the ground. The map generator has always made real terrain — ridges,
+ * woods, fords — and the simulation ignored all of it. These are the three
+ * rules that make the land worth looking at before the minimap.
+ */
+export const TERRAIN = {
+  /** Height difference that counts as holding the ground above someone. */
+  vantageDh: 0.55,
+  /** What a bow is worth shooting downhill — and what it loses shooting up. */
+  rangeDownhill: 1.15, rangeUphill: 0.9,
+  /** Ground this high is a vantage: the eye carries further from it. */
+  vantageY: 0.42,
+  visionMul: 1.25,
+  /** Trees within this reach of a cell shade it... */
+  coverR: 2,
+  /** ...and this many make it cover. */
+  coverTrees: 2,
+  /** An enemy unit this close sees into the trees. */
+  concealR: 6
+};
+
+/** Names for the fords a great river is carved with, in the order found. */
+export const FORD_NAMES = ['The Reed Ford', 'The Oxen Ford', 'The Old Ford'];
+
 // ---------------------------------------------------------------- exploration
 /** The scout: what a season in the field is worth. */
 export const SCOUT = {
