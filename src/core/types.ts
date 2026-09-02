@@ -158,6 +158,11 @@ export interface Unit {
   exploring?: boolean;
   /** Speed multiplier from ground effects (Rome's Roads). Sampled, not per-tick. */
   speedAura: number;
+  /**
+   * Standing among trees with no enemy near enough to see in: not drawn, not
+   * on the minimap, not auto-targeted. Striking or being closed on ends it.
+   */
+  hidden?: boolean;
 }
 
 export interface QueueItem {

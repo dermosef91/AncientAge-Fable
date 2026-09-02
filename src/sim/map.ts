@@ -2,7 +2,7 @@
 // shapes the water (open coast, island chains, lake lands or a great river),
 // biomes paint the land, a guaranteed land route links the two towns, and
 // the wilds between them are seeded with encounters worth marching out for.
-import { ENC, MAP_H, MAP_W, WILDS } from '../core/config';
+import { ENC, FORD_NAMES, MAP_H, MAP_W, WILDS } from '../core/config';
 import type { BuildingTypeId, EncounterKind, EncounterSite, Faction, UnitTypeId } from '../core/types';
 import { LANDMARK_BUILDING, LANDMARK_KINDS } from '../core/types';
 import { clamp, dist, fbm, makeNoise2D, makeRng } from '../core/utils';
@@ -52,6 +52,7 @@ export function genMap(world: World, seed: number, playerFaction: Faction, aiFac
   // landness(x, z) > 0 means land; <= 0 means water, more negative = deeper.
   let landness: (x: number, z: number) => number;
 
+  const fordSpots: { x: number; z: number }[] = [];
   if (archetype === 'coast') {
     // ocean along one random edge, bulging into bays
     const side = Math.floor(rng() * 4);
@@ -121,6 +122,13 @@ export function genMap(world: World, seed: number, playerFaction: Faction, aiFac
       if (Math.abs(t - lagoonT) > 0.09) fords.push(t);
     }
     if (fords.length === 0) fords.push(lagoonT > 0.5 ? 0.2 : 0.8);
+    // Remember where the crossings were carved: they get names, and a name on
+    // the minimap is what turns a lucky crossing into a known road.
+    for (const f of fords) {
+      const along = f * MAP_H;
+      const across = mid + Math.sin(f * Math.PI * k + phase) * amp;
+      fordSpots.push(vertical ? { x: across, z: along } : { x: along, z: across });
+    }
     landness = (x, z) => {
       const along = (vertical ? z : x) / MAP_H;
       const across = vertical ? x : z;
@@ -138,6 +146,7 @@ export function genMap(world: World, seed: number, playerFaction: Faction, aiFac
   }
 
   // ---------------------------------------------------------------- heights
+  // (fordSpots is filled by the river branch above, snapped to land below)
   const rollingAt = (x: number, z: number) =>
     fbm(noise, x * 0.018, z * 0.018, 3) * 0.26 + fbm(noiseB, x * 0.06, z * 0.06, 2) * 0.06;
 
@@ -953,6 +962,21 @@ export function genMap(world: World, seed: number, playerFaction: Faction, aiFac
         }
       }
     }
+  }
+
+  // ---------------------------------------------------------------- fords
+  // Snap each carved crossing to the walkable ground it actually made. A ford
+  // the noise swallowed (no passable cell nearby) is quietly dropped.
+  for (const s of fordSpots) {
+    if (world.fords.length >= FORD_NAMES.length) break;
+    const cx = clamp(Math.round(s.x), 2, MAP_W - 3);
+    const cz = clamp(Math.round(s.z), 2, MAP_H - 3);
+    const cell = landPassable(world.grid, cx, cz) ? { x: cx, z: cz } : nearestFree(world.grid, cx, cz, false, 4);
+    if (!cell) continue;
+    world.fords.push({
+      x: cell.x + 0.5, z: cell.z + 0.5,
+      name: FORD_NAMES[world.fords.length], discovered: false
+    });
   }
 
   // ---------------------------------------------------------------- fog

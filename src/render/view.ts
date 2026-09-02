@@ -25,6 +25,9 @@ import { TerrainView } from './terrain';
 const CAM_DIR = new THREE.Vector3(0.42, 0.82, 0.42).normalize();
 
 /** Units heavy or numerous enough to raise dust on the march. */
+/** Flag-owner key for the festival's bunting: not a building id, one set for all. */
+const FESTIVAL_FLAGS = -7;
+
 const MARCH_DUST = new Set<UnitTypeId>([
   'spearman', 'archer', 'hoplite', 'legionary', 'mercenary', 'boar'
 ]);
@@ -190,6 +193,8 @@ export class GameView {
   private ghostMesh: THREE.Mesh | null = null;
   /** A settlement level-up rolling outward through the city, building by building. */
   private festival: { stops: { x: number; z: number; size: number }[]; i: number; t: number } | null = null;
+  /** Whether the city is currently flying its festival bunting. */
+  private festivalFlags = false;
   private ghostPad: THREE.Mesh;
   private rallyPole: THREE.Group;
   private rings: THREE.Mesh[] = [];
@@ -478,7 +483,8 @@ export class GameView {
           stops.sort((a, c) =>
             (a.x - e.x) ** 2 + (a.z - e.z) ** 2 - ((c.x - e.x) ** 2 + (c.z - e.z) ** 2));
           this.festival = { stops, i: 0, t: 0 };
-          this.decals.add(e.x, e.z, 5.2, 0xe8c15a, 2.6, 0.4);
+          this.decals.add(e.x, e.z, 6.5, 0xe8c15a, 3.2, 0.5);
+          this.decals.add(e.x, e.z, 3.2, 0xf6d27a, 2.2, 0.6);
           this.addShake(0.12);
           break;
         }
@@ -538,22 +544,52 @@ export class GameView {
    * Purely presentational: the boon it celebrates lives in the simulation.
    */
   private updateFestival(rdt: number) {
+    // Bunting for the whole boon: while the festival runs, every finished
+    // building in the city flies a gold pennant, and they all come down
+    // together when it ends. This is what makes a festival readable at a
+    // glance from any zoom, long after the petals have settled.
+    const on = this.world.hasBoon(0, 'festival');
+    if (on !== this.festivalFlags) {
+      this.festivalFlags = on;
+      this.flags.removeFor(FESTIVAL_FLAGS);
+      if (on) {
+        let flown = 0;
+        for (const b of this.world.buildings.values()) {
+          if (b.owner !== 0 || !b.built || b.size < 2 || flown >= 40) continue;
+          const y = heightAt(this.world, b.x, b.z);
+          const a = (b.id % 4) * (Math.PI / 2) + 0.6;
+          // above the roofline, so the gold reads over the faction's own banners
+          this.flags.add(
+            FESTIVAL_FLAGS,
+            b.x + Math.cos(a) * (b.size / 2 - 0.2),
+            y + (BUILDING_VIS_HEIGHT[b.type] ?? 1.5) * 0.9,
+            b.z + Math.sin(a) * (b.size / 2 - 0.2),
+            0xf0c05a, 1.05
+          );
+          flown++;
+        }
+      }
+    }
+
     const f = this.festival;
     if (!f) return;
     f.t += rdt;
     const accent = FACTIONS[this.world.players[0].faction].accent;
     while (f.i < f.stops.length && f.t > f.i * 0.09) {
       const s = f.stops[f.i++];
-      const y = heightAt(this.world, s.x, s.z) + (BUILDING_VIS_HEIGHT.house ?? 1.5) * 0.8 + s.size * 0.25;
-      // Petals, not sparks: big, slow, and drifting down for a good two seconds.
-      this.particles.burst(s.x, y, s.z, 14 + s.size * 4, 0xf0cf78,
-        { speed: 1.0, up: 1.9, life: 2.3, size: 0.24, grav: 0.55, spread: s.size * 0.5 });
-      this.particles.burst(s.x, y, s.z, 9 + s.size * 3, accent,
-        { speed: 1.25, up: 1.6, life: 2.5, size: 0.2, grav: 0.45, spread: s.size * 0.55 });
+      const y = heightAt(this.world, s.x, s.z) + (BUILDING_VIS_HEIGHT.house ?? 1.5) * 0.8 + s.size * 0.3;
+      // Petals, not sparks: big, slow, and hanging in the air long enough to
+      // be seen from a mobile camera height.
+      this.particles.burst(s.x, y, s.z, 18 + s.size * 5, 0xf6d27a,
+        { speed: 1.1, up: 2.3, life: 3.0, size: 0.36, grav: 0.4, spread: s.size * 0.55 });
+      this.particles.burst(s.x, y + 0.4, s.z, 12 + s.size * 4, accent,
+        { speed: 1.35, up: 2.0, life: 3.2, size: 0.3, grav: 0.34, spread: s.size * 0.6 });
+      this.particles.burst(s.x, y + 0.8, s.z, 6, 0xffffff,
+        { speed: 0.8, up: 2.6, life: 2.4, size: 0.22, grav: 0.3, spread: s.size * 0.4 });
       // ...and a warm ring at the foot of the building, which reads at any zoom
-      this.decals.add(s.x, s.z, s.size * 1.3 + 0.9, 0xe8c15a, 1.4, 0.35);
+      this.decals.add(s.x, s.z, s.size * 1.6 + 1.2, 0xe8c15a, 2.2, 0.4);
     }
-    if (f.i >= f.stops.length && f.t > f.stops.length * 0.09 + 2.4) this.festival = null;
+    if (f.i >= f.stops.length && f.t > f.stops.length * 0.09 + 3.2) this.festival = null;
   }
 
   private updateCamera(rdt: number) {
@@ -583,9 +619,10 @@ export class GameView {
         v = this.createUnitView(u);
         this.unitViews.set(u.id, v);
       }
-      const explored = u.owner === 0 || w.isExploredWorld(u.x, u.z);
-      v.group.visible = explored;
-      if (!explored) continue;
+      // A rival soldier hidden in the trees is simply not there to be drawn.
+      const seen = u.owner === 0 || (w.isExploredWorld(u.x, u.z) && !(u.owner === 1 && u.hidden));
+      v.group.visible = seen;
+      if (!seen) continue;
 
       const x = lerp(u.px, u.x, alpha);
       const z = lerp(u.pz, u.z, alpha);
